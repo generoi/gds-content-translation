@@ -498,8 +498,16 @@ class Admin
     {
         $slugs = PLL()->model->get_translated_post_types();
         $postTypes = [];
+        $excludedPostTypes = apply_filters('gds_content_translation_excluded_post_types', [
+            'nav_menu_item',
+            'wp_navigation',
+        ]);
 
         foreach ($slugs as $slug) {
+            if (in_array($slug, $excludedPostTypes, true)) {
+                continue;
+            }
+
             $object = get_post_type_object($slug);
 
             if (! $object) {
