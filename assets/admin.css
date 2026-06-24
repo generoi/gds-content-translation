@@ -1,15 +1,30 @@
-.content-translation-status__filter {
-  display: flex;
+.gds-content-translation__tabs {
+  margin: 0 0 1rem;
+}
+
+.gds-content-translation__tabs .nav-tab {
+  display: inline-flex;
   align-items: center;
-  gap: 0.5rem;
-  margin: 0 0 0.75rem;
+  gap: 0.35rem;
+  margin-right: 0.35rem;
+  margin-bottom: 0.35rem;
 }
 
-.content-translation-status__filter label {
-  font-weight: 600;
+.gds-content-translation__tabs .nav-tab .dashicons {
+  width: 18px;
+  height: 18px;
+  font-size: 18px;
+  line-height: 1;
 }
 
-.content-translation-status__summary {
+.gds-content-translation__tab-icon {
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
+.gds-content-translation__summary {
   background: #fff;
   border: 1px solid #c3c4c7;
   border-left: 4px solid #2271b1;
@@ -18,50 +33,50 @@
   padding: 0.5rem 0.75rem;
 }
 
-.content-translation-status__summary p {
+.gds-content-translation__summary p {
   margin: 0.15rem 0;
   font-size: 13px;
 }
 
-.content-translation-status__summary-stat--missing {
+.gds-content-translation__summary-stat--missing {
   color: #b32d2e;
   font-weight: 600;
 }
 
-.content-translation-status__sep {
+.gds-content-translation__sep {
   color: #a7aaad;
   margin: 0 0.25rem;
 }
 
-.content-translation-status__table {
+.gds-content-translation__table {
   table-layout: fixed;
 }
 
-.content-translation-status__table th,
-.content-translation-status__table td {
+.gds-content-translation__table th,
+.gds-content-translation__table td {
   padding: 0.4rem 0.6rem;
   vertical-align: middle;
   font-size: 13px;
 }
 
-.content-translation-status__table th:first-child,
-.content-translation-status__table td.content-translation-status__title {
+.gds-content-translation__table th:first-child,
+.gds-content-translation__table td.gds-content-translation__title {
   width: 22%;
 }
 
-.content-translation-status__title-cell {
+.gds-content-translation__title-cell {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   gap: 0.25rem;
 }
 
-.content-translation-status__title a {
+.gds-content-translation__title a {
   font-weight: 600;
   line-height: 1.3;
 }
 
-.content-translation-status__notes {
+.gds-content-translation__notes {
   display: inline-flex;
   align-items: center;
   gap: 0.2rem;
@@ -81,38 +96,38 @@
   white-space: nowrap;
 }
 
-.content-translation-status__notes .dashicons {
+.gds-content-translation__notes .dashicons {
   width: 14px;
   height: 14px;
   font-size: 14px;
   line-height: 1;
 }
 
-.content-translation-status__notes:hover,
-.content-translation-status__notes:focus {
+.gds-content-translation__notes:hover,
+.gds-content-translation__notes:focus {
   background: #f5f0d8;
   color: #6d552e;
 }
 
-.content-translation-status__lang {
+.gds-content-translation__lang {
   min-width: 9rem;
 }
 
-.content-translation-status__cell,
-.content-translation-status__missing-cell,
-.content-translation-status__lang > .content-translation-status__badge {
+.gds-content-translation__cell,
+.gds-content-translation__missing-cell,
+.gds-content-translation__lang > .gds-content-translation__badge {
   display: flex;
   align-items: center;
   min-height: 1.75rem;
 }
 
-.content-translation-status__missing-cell {
+.gds-content-translation__missing-cell {
   flex-direction: column;
   align-items: flex-start;
   gap: 0.35rem;
 }
 
-.content-translation-status__translate {
+.gds-content-translation__translate {
   display: inline-flex !important;
   align-items: center;
   gap: 0.25rem;
@@ -122,25 +137,25 @@
   padding: 0 0.5rem !important;
 }
 
-.content-translation-status__translate-icon {
+.gds-content-translation__translate-icon {
   width: 14px;
   height: 14px;
   font-size: 14px;
   line-height: 1;
 }
 
-.content-translation-status__cell {
+.gds-content-translation__cell {
   gap: 0.5rem;
 }
 
-.content-translation-status__actions {
+.gds-content-translation__actions {
   display: inline-flex;
   align-items: center;
   gap: 0.75rem;
   min-width: 0;
 }
 
-.content-translation-status__badge {
+.gds-content-translation__badge {
   display: inline-flex;
   flex-shrink: 0;
   align-items: center;
@@ -153,12 +168,12 @@
   line-height: 1;
 }
 
-.content-translation-status__badge--exists {
+.gds-content-translation__badge--exists {
   background: #edfaef;
   color: #007017;
 }
 
-.content-translation-status__badge--missing {
+.gds-content-translation__badge--missing {
   background: #fcf0f1;
   color: #b32d2e;
   width: auto;
@@ -167,19 +182,19 @@
   padding: 0.1rem 0.4rem;
 }
 
-.content-translation-status__edit {
+.gds-content-translation__edit {
   flex-shrink: 0;
   font-size: 13px;
   line-height: 1.75rem;
   text-decoration: none;
 }
 
-.content-translation-status__edit:hover,
-.content-translation-status__edit:focus {
+.gds-content-translation__edit:hover,
+.gds-content-translation__edit:focus {
   text-decoration: underline;
 }
 
-.content-translation-status__proofread {
+.gds-content-translation__proofread {
   display: inline-flex;
   flex-shrink: 0;
   align-items: center;
@@ -195,7 +210,7 @@
   white-space: nowrap;
 }
 
-.content-translation-status__proofread-input {
+.gds-content-translation__proofread-input {
   flex-shrink: 0;
   width: 1rem;
   height: 1rem;
@@ -203,20 +218,20 @@
   vertical-align: middle;
 }
 
-.content-translation-status__proofread-label {
+.gds-content-translation__proofread-label {
   line-height: 1;
 }
 
-.content-translation-status__proofread-input.is-saving {
+.gds-content-translation__proofread-input.is-saving {
   opacity: 0.5;
 }
 
-.content-translation-status__proofread-input:checked ~ .content-translation-status__proofread-label {
+.gds-content-translation__proofread-input:checked ~ .gds-content-translation__proofread-label {
   color: #007017;
   font-weight: 600;
 }
 
-.content-translation-status__celebration-canvas {
+.gds-content-translation__celebration-canvas {
   position: fixed;
   inset: 0;
   z-index: 999999;
@@ -224,7 +239,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .content-translation-status__celebration-canvas {
+  .gds-content-translation__celebration-canvas {
     display: none;
   }
 }

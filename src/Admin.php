@@ -259,7 +259,11 @@ class Admin
         $languages = $this->getLanguages();
 
         $rows = $selectedPostType !== '' ? $this->getRows($selectedPostType, $languages) : [];
-        $summary = $this->buildSummary($rows, $languages, $selectedPostType !== '' ? ($postTypes[$selectedPostType] ?? '') : '');
+        $summary = $this->buildSummary(
+            $rows,
+            $languages,
+            $selectedPostType !== '' ? ($postTypes[$selectedPostType]['label'] ?? '') : ''
+        );
         $machineTranslation = new MachineTranslation;
         $machineTranslationAvailable = MachineTranslation::isAvailable();
 
@@ -270,19 +274,35 @@ class Admin
             <?php if (empty($postTypes)) { ?>
                 <p><?php echo esc_html__('No translatable post types are configured in Polylang.', 'gds-content-translation'); ?></p>
             <?php } else { ?>
-                <form method="get" class="gds-content-translation__filter">
-                    <input type="hidden" name="page" value="<?php echo esc_attr(self::pageSlug); ?>">
-                    <label for="cts-post-type">
-                        <?php echo esc_html__('Post type', 'gds-content-translation'); ?>
-                    </label>
-                    <select name="gds_ct_post_type" id="gds-ct-post-type" onchange="this.form.submit()">
-                        <?php foreach ($postTypes as $slug => $label) { ?>
-                            <option value="<?php echo esc_attr($slug); ?>" <?php selected($selectedPostType, $slug); ?>>
-                                <?php echo esc_html($label); ?>
-                            </option>
-                        <?php } ?>
-                    </select>
-                </form>
+                <nav
+                    class="gds-content-translation__tabs nav-tab-wrapper wp-clearfix"
+                    aria-label="<?php echo esc_attr__('Post type', 'gds-content-translation'); ?>"
+                >
+                    <?php foreach ($postTypes as $slug => $postType) { ?>
+                        <?php
+                        $tabUrl = add_query_arg(
+                            [
+                                'page' => self::pageSlug,
+                                'gds_ct_post_type' => $slug,
+                            ],
+                            admin_url('admin.php')
+                        );
+                        $tabClasses = ['nav-tab'];
+
+                        if ($slug === $selectedPostType) {
+                            $tabClasses[] = 'nav-tab-active';
+                        }
+                        ?>
+                        <a
+                            href="<?php echo esc_url($tabUrl); ?>"
+                            class="<?php echo esc_attr(implode(' ', $tabClasses)); ?>"
+                            <?php echo $slug === $selectedPostType ? 'aria-current="page"' : ''; ?>
+                        >
+                            <?php echo self::renderPostTypeIcon($postType['icon']); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped?>
+                            <span><?php echo esc_html($postType['label']); ?></span>
+                        </a>
+                    <?php } ?>
+                </nav>
 
                 <?php if (empty($rows)) { ?>
                     <p><?php echo esc_html__('No posts found for this post type.', 'gds-content-translation'); ?></p>
@@ -472,7 +492,7 @@ class Admin
     }
 
     /**
-     * @return array<string, string>
+     * @return array<string, array{label: string, icon: string}>
      */
     private function getTranslatablePostTypes(): array
     {
@@ -486,12 +506,41 @@ class Admin
                 continue;
             }
 
-            $postTypes[$slug] = $object->labels->name;
+            $postTypes[$slug] = [
+                'label' => $object->labels->name,
+                'icon' => is_string($object->menu_icon) ? $object->menu_icon : 'dashicons-admin-post',
+            ];
         }
 
-        asort($postTypes);
+        uasort($postTypes, static fn (array $a, array $b): int => strcasecmp($a['label'], $b['label']));
 
         return $postTypes;
+    }
+
+    private static function renderPostTypeIcon(string $menuIcon): string
+    {
+        if ($menuIcon === '' || $menuIcon === 'none') {
+            return '<span class="dashicons dashicons-admin-post" aria-hidden="true"></span>';
+        }
+
+        if (str_starts_with($menuIcon, 'dashicons-')) {
+            return sprintf(
+                '<span class="dashicons %s" aria-hidden="true"></span>',
+                esc_attr($menuIcon)
+            );
+        }
+
+        if (str_starts_with($menuIcon, 'data:') || filter_var($menuIcon, FILTER_VALIDATE_URL)) {
+            return sprintf(
+                '<img src="%s" alt="" class="gds-content-translation__tab-icon" aria-hidden="true" />',
+                esc_url($menuIcon)
+            );
+        }
+
+        return sprintf(
+            '<span class="dashicons dashicons-%s" aria-hidden="true"></span>',
+            esc_attr(sanitize_html_class($menuIcon))
+        );
     }
 
     /**

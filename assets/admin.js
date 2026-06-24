@@ -82,7 +82,7 @@
     var particles = createParticles(originX, originY, style);
 
     var canvas = document.createElement('canvas');
-    canvas.className = 'content-translation-status__celebration-canvas';
+    canvas.className = 'gds-content-translation__celebration-canvas';
     canvas.width = window.innerWidth;
     canvas.height = window.innerHeight;
     document.body.appendChild(canvas);
@@ -140,7 +140,7 @@
   document.addEventListener('change', function (event) {
     var target = event.target;
 
-    if (!target.classList.contains('content-translation-status__proofread-input')) {
+    if (!target.classList.contains('gds-content-translation__proofread-input')) {
       return;
     }
 
@@ -153,7 +153,7 @@
     target.classList.add('is-saving');
 
     var body = new FormData();
-    body.append('action', 'cts_save_proofread');
+    body.append('action', 'gds_ct_save_proofread');
     body.append('nonce', contentTranslationStatus.nonce);
     body.append('postId', postId);
     body.append('proofread', target.checked ? '1' : '0');
