@@ -1,4 +1,177 @@
 (function () {
+  function normalizeSearchText(value) {
+    return String(value || '')
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  function parseSearchTerms(query) {
+    return normalizeSearchText(query)
+      .split(' ')
+      .filter(Boolean);
+  }
+
+  function rowMatchesSearch(title, terms) {
+    if (!terms.length) {
+      return true;
+    }
+
+    var haystack = normalizeSearchText(title);
+
+    if (!haystack) {
+      return false;
+    }
+
+    for (var i = 0; i < terms.length; i++) {
+      var term = terms[i];
+
+      if (haystack.indexOf(term) !== -1) {
+        continue;
+      }
+
+      if (isSubsequenceMatch(haystack, term)) {
+        continue;
+      }
+
+      return false;
+    }
+
+    return true;
+  }
+
+  function isSubsequenceMatch(haystack, needle) {
+    if (needle.length < 3) {
+      return false;
+    }
+
+    var start = 0;
+
+    for (var i = 0; i < needle.length; i++) {
+      var index = haystack.indexOf(needle.charAt(i), start);
+
+      if (index === -1) {
+        return false;
+      }
+
+      start = index + 1;
+    }
+
+    return true;
+  }
+
+  function initSearch() {
+    var root = document.querySelector('.gds-content-translation');
+
+    if (!root) {
+      return;
+    }
+
+    var input = root.querySelector('.gds-content-translation__search-input');
+    var clearButton = root.querySelector('.gds-content-translation__search-clear');
+    var status = root.querySelector('.gds-content-translation__search-status');
+    var table = root.querySelector('.gds-content-translation__table');
+
+    if (!input || !table) {
+      return;
+    }
+
+    var rows = Array.prototype.slice.call(
+      table.querySelectorAll('tbody tr[data-search-title]')
+    );
+    var total = rows.length;
+    var emptyRow = table.querySelector('.gds-content-translation__search-empty');
+
+    function formatMatchStatus(visible, total) {
+      var strings = window.contentTranslationStatus && window.contentTranslationStatus.search;
+
+      if (!strings) {
+        if (visible === 0) {
+          return 'No matches';
+        }
+
+        if (visible === total) {
+          return total + ' matches';
+        }
+
+        return visible + ' of ' + total;
+      }
+
+      if (visible === 0) {
+        return strings.noMatches;
+      }
+
+      if (visible === total) {
+        if (total === 1) {
+          return strings.matchCount;
+        }
+
+        return strings.matchCountPlural.replace('%d', String(total));
+      }
+
+      return strings.matchCountFiltered
+        .replace('%1$d', String(visible))
+        .replace('%2$d', String(total));
+    }
+
+    function updateStatus(visible) {
+      if (!status) {
+        return;
+      }
+
+      if (!input.value.trim()) {
+        status.textContent = '';
+        return;
+      }
+
+      status.textContent = formatMatchStatus(visible, total);
+    }
+
+    function applyFilter() {
+      var terms = parseSearchTerms(input.value);
+      var visible = 0;
+
+      rows.forEach(function (row) {
+        var matches = rowMatchesSearch(row.dataset.searchTitle || '', terms);
+
+        row.hidden = !matches;
+
+        if (matches) {
+          visible += 1;
+        }
+      });
+
+      if (clearButton) {
+        clearButton.hidden = terms.length === 0;
+      }
+
+      if (emptyRow) {
+        emptyRow.hidden = visible > 0 || terms.length === 0;
+      }
+
+      updateStatus(visible);
+    }
+
+    input.addEventListener('input', applyFilter);
+
+    if (clearButton) {
+      clearButton.addEventListener('click', function () {
+        input.value = '';
+        input.focus();
+        applyFilter();
+      });
+    }
+
+    input.addEventListener('keydown', function (event) {
+      if (event.key === 'Escape') {
+        input.value = '';
+        applyFilter();
+      }
+    });
+  }
+
   var celebrationEmojis = ['🦄', '⭐', '✨', '🌟', '💫', '🎉', '🥳', '👏', '💚', '🎊', '✅', '🌈', '🔥', '💎', '🍀'];
   var celebrationColors = ['#007017', '#72aee6', '#dba617', '#d63638', '#9b51e0', '#00a32a'];
 
@@ -183,4 +356,10 @@
         target.classList.remove('is-saving');
       });
   });
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initSearch);
+  } else {
+    initSearch();
+  }
 })();

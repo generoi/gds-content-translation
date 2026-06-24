@@ -24,6 +24,48 @@
   flex-shrink: 0;
 }
 
+.gds-content-translation__search {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.75rem;
+  margin: 0 0 0.75rem;
+  max-width: 36rem;
+}
+
+.gds-content-translation__search-icon {
+  width: 18px;
+  height: 18px;
+  font-size: 18px;
+  line-height: 1;
+  color: #646970;
+  flex-shrink: 0;
+}
+
+.gds-content-translation__search-input {
+  flex: 1 1 14rem;
+  min-width: 12rem;
+  margin: 0;
+}
+
+.gds-content-translation__search-clear {
+  flex-shrink: 0;
+  margin: 0;
+  padding: 0;
+}
+
+.gds-content-translation__search-status {
+  flex: 1 1 100%;
+  font-size: 12px;
+  color: #646970;
+}
+
+.gds-content-translation__search-empty td {
+  color: #646970;
+  font-style: italic;
+  text-align: center;
+}
+
 .gds-content-translation__summary {
   background: #fff;
   border: 1px solid #c3c4c7;

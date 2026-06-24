@@ -214,6 +214,14 @@ class Admin
         wp_localize_script('gds-content-translation', 'contentTranslationStatus', [
             'ajaxUrl' => admin_url('admin-ajax.php'),
             'nonce' => wp_create_nonce('gds_content_translation'),
+            'search' => [
+                'noMatches' => __('No matches', 'gds-content-translation'),
+                'matchCount' => __('1 match', 'gds-content-translation'),
+                /* translators: %d: number of matching rows */
+                'matchCountPlural' => __('%d matches', 'gds-content-translation'),
+                /* translators: 1: visible count, 2: total count */
+                'matchCountFiltered' => __('%1$d of %2$d', 'gds-content-translation'),
+            ],
         ]);
     }
 
@@ -366,6 +374,34 @@ class Admin
                         <?php } ?>
                     </div>
 
+                    <div class="gds-content-translation__search">
+                        <label class="screen-reader-text" for="gds-content-translation-search">
+                            <?php echo esc_html__('Search titles', 'gds-content-translation'); ?>
+                        </label>
+                        <span class="dashicons dashicons-search gds-content-translation__search-icon" aria-hidden="true"></span>
+                        <input
+                            type="search"
+                            id="gds-content-translation-search"
+                            class="gds-content-translation__search-input"
+                            placeholder="<?php echo esc_attr__('Search titles…', 'gds-content-translation'); ?>"
+                            autocomplete="off"
+                            spellcheck="false"
+                        >
+                        <button
+                            type="button"
+                            class="gds-content-translation__search-clear button-link"
+                            hidden
+                            aria-label="<?php echo esc_attr__('Clear search', 'gds-content-translation'); ?>"
+                        >
+                            <?php echo esc_html__('Clear', 'gds-content-translation'); ?>
+                        </button>
+                        <span
+                            class="gds-content-translation__search-status"
+                            aria-live="polite"
+                            aria-atomic="true"
+                        ></span>
+                    </div>
+
                     <table class="widefat striped gds-content-translation__table">
                         <thead>
                             <tr>
@@ -377,7 +413,7 @@ class Admin
                         </thead>
                         <tbody>
                             <?php foreach ($rows as $row) { ?>
-                                <tr>
+                                <tr data-search-title="<?php echo esc_attr($row['title']); ?>">
                                     <td class="gds-content-translation__title">
                                         <div class="gds-content-translation__title-cell">
                                             <a href="<?php echo esc_url(get_edit_post_link($row['sourceId'], 'raw')); ?>">
@@ -433,6 +469,11 @@ class Admin
                                     <?php } ?>
                                 </tr>
                             <?php } ?>
+                            <tr class="gds-content-translation__search-empty" hidden>
+                                <td colspan="<?php echo esc_attr((string) (count($languages) + 1)); ?>">
+                                    <?php echo esc_html__('No titles match your search.', 'gds-content-translation'); ?>
+                                </td>
+                            </tr>
                         </tbody>
                     </table>
                 <?php } ?>
