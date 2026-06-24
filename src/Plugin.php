@@ -3,7 +3,9 @@
 namespace GeneroWP\ContentTranslation;
 
 use GeneroWP\ContentTranslation\Polylang\BlockLinkTranslation;
+use GeneroWP\ContentTranslation\Polylang\BlockPostIdTranslation;
 use GeneroWP\ContentTranslation\Polylang\BlockRules;
+use GeneroWP\ContentTranslation\Polylang\MetaRules;
 
 class Plugin
 {
@@ -30,9 +32,12 @@ class Plugin
         }
 
         Admin::init();
+        Settings::init();
         MachineTranslation::init();
 
         new BlockRules;
         new BlockLinkTranslation;
+        new BlockPostIdTranslation;
+        new MetaRules;
     }
 }

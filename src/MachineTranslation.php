@@ -2,6 +2,7 @@
 
 namespace GeneroWP\ContentTranslation;
 
+use GeneroWP\ContentTranslation\Polylang\BlockPostIdTranslation;
 use PLL_Export_Container;
 use PLL_Export_Data_From_Posts;
 use WP_Error;
@@ -156,6 +157,8 @@ class MachineTranslation
                 __('Unable to retrieve the translation.', 'gds-content-translation')
             );
         }
+
+        BlockPostIdTranslation::normalizePostContent($translationId);
 
         return $translationId;
     }

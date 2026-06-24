@@ -164,23 +164,33 @@ class Admin
         global $post;
 
         if ($post instanceof \WP_Post && function_exists('pll_is_translated_post_type') && pll_is_translated_post_type($post->post_type)) {
-            return $post->post_type;
+            if (Settings::isPostTypeVisible($post->post_type)) {
+                return $post->post_type;
+            }
         }
 
         if (is_admin() && isset($_GET['post_type'])) {
             $postType = sanitize_key((string) $_GET['post_type']);
 
-            if ($postType !== '' && pll_is_translated_post_type($postType)) {
+            if ($postType !== '' && pll_is_translated_post_type($postType) && Settings::isPostTypeVisible($postType)) {
                 return $postType;
             }
         }
 
-        return self::getSavedPostType();
+        $savedPostType = self::getSavedPostType();
+
+        if ($savedPostType !== '' && Settings::isPostTypeVisible($savedPostType)) {
+            return $savedPostType;
+        }
+
+        $visiblePostTypes = Settings::getVisiblePostTypeSlugs();
+
+        return $visiblePostTypes[0] ?? '';
     }
 
     public function enqueueAssets(string $hookSuffix): void
     {
-        if ($hookSuffix !== 'languages_page_'.self::pageSlug) {
+        if ($hookSuffix !== 'languages_page_'.self::pageSlug && $hookSuffix !== 'languages_page_mlang_content_translation_settings') {
             return;
         }
 
@@ -269,7 +279,12 @@ class Admin
 
         ?>
         <div class="wrap gds-content-translation">
-            <h1><?php echo esc_html__('Content translation status', 'gds-content-translation'); ?></h1>
+            <h1>
+                <?php echo esc_html__('Content translation status', 'gds-content-translation'); ?>
+                <a href="<?php echo esc_url(admin_url('admin.php?page=mlang_content_translation_settings')); ?>" class="page-title-action">
+                    <?php echo esc_html__('Settings', 'gds-content-translation'); ?>
+                </a>
+            </h1>
 
             <?php if (empty($postTypes)) { ?>
                 <p><?php echo esc_html__('No translatable post types are configured in Polylang.', 'gds-content-translation'); ?></p>
@@ -496,31 +511,12 @@ class Admin
      */
     private function getTranslatablePostTypes(): array
     {
-        $slugs = PLL()->model->get_translated_post_types();
-        $postTypes = [];
-        $excludedPostTypes = apply_filters('gds_content_translation_excluded_post_types', [
-            'nav_menu_item',
-            'wp_navigation',
-        ]);
+        $postTypes = Settings::getAllPostTypes();
+        $hiddenPostTypes = Settings::getHiddenPostTypes();
 
-        foreach ($slugs as $slug) {
-            if (in_array($slug, $excludedPostTypes, true)) {
-                continue;
-            }
-
-            $object = get_post_type_object($slug);
-
-            if (! $object) {
-                continue;
-            }
-
-            $postTypes[$slug] = [
-                'label' => $object->labels->name,
-                'icon' => is_string($object->menu_icon) ? $object->menu_icon : 'dashicons-admin-post',
-            ];
+        foreach ($hiddenPostTypes as $slug) {
+            unset($postTypes[$slug]);
         }
-
-        uasort($postTypes, static fn (array $a, array $b): int => strcasecmp($a['label'], $b['label']));
 
         return $postTypes;
     }

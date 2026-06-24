@@ -66,6 +66,11 @@ class BlockRules
                     ],
                 ],
             ],
+            'woocommerce/single-product' => [
+                'post' => [
+                    'productId' => true,
+                ],
+            ],
         ];
     }
 }

@@ -40,6 +40,16 @@ For local path development (before the package is on Packagist):
 
 Polylang → **Content translation status**: overview of missing translations, proof-read flags, open block notes, and one-click machine translate per language.
 
+Polylang → **Content translation settings**: choose which post types appear as tabs on the status screen. Unchecked types are hidden from the dashboard UI.
+
+Programmatic exclusions still work via filter (always applied on top of saved settings):
+
+```php
+add_filter('gds_content_translation_excluded_post_types', function (array $postTypes): array {
+    return array_merge($postTypes, ['shop_order']);
+});
+```
+
 ### Polylang block integration
 
 The plugin registers Polylang Pro hooks and exposes **project-specific rules via WordPress filters**. Themes (or site-specific mu-plugins) declare which custom block attributes are translatable strings, which hold post/attachment IDs, and which hold internal URLs.
@@ -118,6 +128,43 @@ add_filter('gds_content_translation_link_url_attributes_by_block', function (arr
 });
 ```
 
+### 4. Post meta (custom fields)
+
+Use for plain `register_post_meta()` / meta box values that are **frontend text** and should be machine-translated.
+
+Maps to Polylang’s `pll_post_metas_to_export`. Keys are grouped by post type.
+
+```php
+add_filter('gds_content_translation_pll_post_metas_to_export', function (array $rulesByPostType): array {
+    return array_merge($rulesByPostType, [
+        'person' => [
+            'person_job_title' => 1,
+            'person_department' => 1,
+            'person_sales_area' => 1,
+        ],
+    ]);
+});
+```
+
+Use `1` for scalar string metas. Nested array metas use the same shape as Polylang’s export rules (sub-key => 1).
+
+Keep locale-invariant metas (phone, email, attachment IDs) on `pll_copy_post_metas` sync only — do not list them here.
+
+### 5. ACF fields
+
+Polylang Pro handles ACF via field-level translation modes. Set defaults for fields that are not configured in the ACF UI:
+
+```php
+add_filter('gds_content_translation_acf_field_translations', function (array $modesByFieldName): array {
+    return array_merge($modesByFieldName, [
+        'material_file' => 'copy_once', // attachment ID
+        'hero_intro' => 'translate',    // frontend text
+    ]);
+});
+```
+
+Modes: `translate`, `translate_once`, `copy_once`, `sync`, `ignore`.
+
 ## LOFS / GDS theme example
 
 The [lofs](https://github.com/generoi/lofs) theme registers its `gds/*` blocks in `app/filters.php`:
@@ -153,6 +200,8 @@ add_filter('gds_content_translation_link_url_attributes_by_block', function (arr
 | Feature | When | Persisted? |
 |---------|------|------------|
 | Text attributes | Machine translation, XLIFF import, sync | Yes — saved in post content |
+| Post meta text | Machine translation, XLIFF import | Yes — saved in post meta |
+| ACF text fields | Machine translation, XLIFF import | Yes — saved in post meta |
 | ID sync (`postId`, etc.) | Machine translation, Polylang content sync | Yes |
 | Link remapping (sync hook) | Machine translation, Polylang content sync | Yes |
 | Link remapping (render hook) | Every frontend block render | No — runtime fallback for old content |
