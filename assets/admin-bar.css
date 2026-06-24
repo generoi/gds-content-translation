@@ -1,0 +1,12 @@
+#wpadminbar #wp-admin-bar-content-translation-status > .ab-item .ab-icon.dashicons-translation {
+  width: 20px;
+  height: 20px;
+  font-size: 20px;
+  line-height: 1.25;
+  margin-right: 0.25rem;
+}
+
+#wpadminbar #wp-admin-bar-content-translation-status > .ab-item {
+  display: flex;
+  align-items: center;
+}

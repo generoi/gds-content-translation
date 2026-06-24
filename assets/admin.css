@@ -1,0 +1,230 @@
+.content-translation-status__filter {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0 0 0.75rem;
+}
+
+.content-translation-status__filter label {
+  font-weight: 600;
+}
+
+.content-translation-status__summary {
+  background: #fff;
+  border: 1px solid #c3c4c7;
+  border-left: 4px solid #2271b1;
+  box-shadow: 0 1px 1px rgb(0 0 0 / 4%);
+  margin: 0 0 0.75rem;
+  padding: 0.5rem 0.75rem;
+}
+
+.content-translation-status__summary p {
+  margin: 0.15rem 0;
+  font-size: 13px;
+}
+
+.content-translation-status__summary-stat--missing {
+  color: #b32d2e;
+  font-weight: 600;
+}
+
+.content-translation-status__sep {
+  color: #a7aaad;
+  margin: 0 0.25rem;
+}
+
+.content-translation-status__table {
+  table-layout: fixed;
+}
+
+.content-translation-status__table th,
+.content-translation-status__table td {
+  padding: 0.4rem 0.6rem;
+  vertical-align: middle;
+  font-size: 13px;
+}
+
+.content-translation-status__table th:first-child,
+.content-translation-status__table td.content-translation-status__title {
+  width: 22%;
+}
+
+.content-translation-status__title-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.25rem;
+}
+
+.content-translation-status__title a {
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.content-translation-status__notes {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  margin-left: 0.75rem;
+  padding-left: 0.75rem;
+  border-left: 1px solid #dcdcde;
+  padding-top: 0.1rem;
+  padding-bottom: 0.1rem;
+  padding-right: 0.35rem;
+  border-radius: 3px;
+  background: #fcf9e8;
+  color: #8a6d3b;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.3;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.content-translation-status__notes .dashicons {
+  width: 14px;
+  height: 14px;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.content-translation-status__notes:hover,
+.content-translation-status__notes:focus {
+  background: #f5f0d8;
+  color: #6d552e;
+}
+
+.content-translation-status__lang {
+  min-width: 9rem;
+}
+
+.content-translation-status__cell,
+.content-translation-status__missing-cell,
+.content-translation-status__lang > .content-translation-status__badge {
+  display: flex;
+  align-items: center;
+  min-height: 1.75rem;
+}
+
+.content-translation-status__missing-cell {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.35rem;
+}
+
+.content-translation-status__translate {
+  display: inline-flex !important;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 11px !important;
+  line-height: 1.4 !important;
+  min-height: 0 !important;
+  padding: 0 0.5rem !important;
+}
+
+.content-translation-status__translate-icon {
+  width: 14px;
+  height: 14px;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.content-translation-status__cell {
+  gap: 0.5rem;
+}
+
+.content-translation-status__actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.content-translation-status__badge {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 1.25rem;
+  height: 1.25rem;
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.content-translation-status__badge--exists {
+  background: #edfaef;
+  color: #007017;
+}
+
+.content-translation-status__badge--missing {
+  background: #fcf0f1;
+  color: #b32d2e;
+  width: auto;
+  height: auto;
+  min-height: 1.25rem;
+  padding: 0.1rem 0.4rem;
+}
+
+.content-translation-status__edit {
+  flex-shrink: 0;
+  font-size: 13px;
+  line-height: 1.75rem;
+  text-decoration: none;
+}
+
+.content-translation-status__edit:hover,
+.content-translation-status__edit:focus {
+  text-decoration: underline;
+}
+
+.content-translation-status__proofread {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0;
+  padding-left: 0.75rem;
+  border-left: 1px solid #dcdcde;
+  font-size: 12px;
+  line-height: 1.75rem;
+  color: #50575e;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.content-translation-status__proofread-input {
+  flex-shrink: 0;
+  width: 1rem;
+  height: 1rem;
+  margin: 0;
+  vertical-align: middle;
+}
+
+.content-translation-status__proofread-label {
+  line-height: 1;
+}
+
+.content-translation-status__proofread-input.is-saving {
+  opacity: 0.5;
+}
+
+.content-translation-status__proofread-input:checked ~ .content-translation-status__proofread-label {
+  color: #007017;
+  font-weight: 600;
+}
+
+.content-translation-status__celebration-canvas {
+  position: fixed;
+  inset: 0;
+  z-index: 999999;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .content-translation-status__celebration-canvas {
+    display: none;
+  }
+}
