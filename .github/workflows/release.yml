@@ -1,0 +1,31 @@
+# Tell the satis index to rebuild as soon as a release is cut.
+#
+# Without this, a new tag is only picked up by the scheduled rebuild in
+# generoi/packagist (every 3h), so until then `composer update` keeps resolving
+# the previous commit and silently installs stale code — the failure is quiet,
+# because composer reports "Nothing to modify in lock file" and exits 0.
+#
+# Fires on a published GitHub Release *and* on a bare `v*` tag push, because
+# both have been used to cut versions in these repos. Firing twice is harmless:
+# the rebuild is idempotent and satis.yml serialises runs via `concurrency`.
+#
+# Requires the `PACKAGIST_UPDATE_PAT` org secret to be granted to this repo. If
+# it is not, update.yml warns and exits green by design, and the release still
+# lands via the 3h cron — just later. Grant it at:
+# https://github.com/organizations/generoi/settings/secrets/actions/PACKAGIST_UPDATE_PAT
+name: Release
+
+on:
+  release:
+    types:
+      - published
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  update-satis:
+    uses: generoi/packagist/.github/workflows/update.yml@master
+    secrets:
+      token: ${{ secrets.PACKAGIST_UPDATE_PAT }}
