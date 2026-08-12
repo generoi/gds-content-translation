@@ -167,7 +167,26 @@ class BlockLinkTranslation
 
         $permalink = $this->getPermalinkInLanguage($translatedPostId, $targetLanguage);
 
-        return $permalink !== '' ? $permalink : $url;
+        if ($permalink === '') {
+            return $url;
+        }
+
+        // url_to_postid() matches on the path alone and the permalink is built
+        // from scratch, so carry over anything the path didn't cover — e.g.
+        // prefill or filter parameters and in-page anchors.
+        $query = wp_parse_url($url, PHP_URL_QUERY);
+
+        if (is_string($query) && $query !== '') {
+            $permalink .= (str_contains($permalink, '?') ? '&' : '?').$query;
+        }
+
+        $fragment = wp_parse_url($url, PHP_URL_FRAGMENT);
+
+        if (is_string($fragment) && $fragment !== '') {
+            $permalink .= '#'.$fragment;
+        }
+
+        return $permalink;
     }
 
     private function isInternalUrl(string $url): bool
