@@ -216,6 +216,22 @@ composer install
 composer lint:fix
 ```
 
+## Testing
+
+Tests run against a real WordPress install with Polylang active, provided by
+[`wp-env`](https://developer.wordpress.org/block-editor/reference-guides/packages/packages-env/)
+(requires Docker).
+
+```bash
+npx @wordpress/env start
+npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/gds-content-translation vendor/bin/phpunit
+npx @wordpress/env stop
+```
+
+`tests/Unit` covers the rule-merging filters, `tests/Integration` covers block
+translation against configured `en` / `fi` languages. Tests that need Polylang
+skip themselves when it is not installed.
+
 ## License
 
 MIT
