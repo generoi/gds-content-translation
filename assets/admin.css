@@ -169,6 +169,12 @@
   gap: 0.35rem;
 }
 
+.gds-content-translation__translate-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
 .gds-content-translation__translate {
   display: inline-flex !important;
   align-items: center;

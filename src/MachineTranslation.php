@@ -7,6 +7,7 @@ use PLL_Export_Container;
 use PLL_Export_Data_From_Posts;
 use WP_Error;
 use WP_Post;
+use WP_Syntex\Polylang_Pro\Modules\Machine_Translation\Clients\Client_Interface;
 use WP_Syntex\Polylang_Pro\Modules\Machine_Translation\Data;
 use WP_Syntex\Polylang_Pro\Modules\Machine_Translation\Factory;
 use WP_Syntex\Polylang_Pro\Modules\Machine_Translation\Processor;
@@ -18,6 +19,12 @@ if (! defined('ABSPATH')) {
 
 class MachineTranslation
 {
+    /** Translate the source content with the configured machine translation service. */
+    public const modeAi = 'ai';
+
+    /** Copy the source content as-is, without machine translation. */
+    public const modeCopy = 'copy';
+
     public static function init(): void
     {
         $handler = new self;
@@ -36,7 +43,21 @@ class MachineTranslation
         return $factory->is_enabled() && $factory->get_active_service() instanceof Service_Interface;
     }
 
-    public function getActionUrl(int $sourceId, string $langSlug, string $postType = ''): string
+    /**
+     * Whether a translation can be created as a copy of the source language.
+     *
+     * Only requires Polylang Pro's translation pipeline, not a machine
+     * translation service.
+     */
+    public static function isCopyAvailable(): bool
+    {
+        return class_exists(Processor::class)
+            && class_exists(Data::class)
+            && class_exists(PLL_Export_Container::class)
+            && interface_exists(Client_Interface::class);
+    }
+
+    public function getActionUrl(int $sourceId, string $langSlug, string $postType = '', string $mode = self::modeAi): string
     {
         return wp_nonce_url(
             add_query_arg(
@@ -44,12 +65,18 @@ class MachineTranslation
                     'action' => 'gds_ct_machine_translate',
                     'source_id' => $sourceId,
                     'lang' => $langSlug,
+                    'mode' => $mode,
                     'gds_ct_post_type' => $postType !== '' ? $postType : null,
                 ]),
                 admin_url('admin-post.php')
             ),
-            'gds_ct_machine_translate_'.$sourceId.'_'.$langSlug
+            $this->getNonceAction($sourceId, $langSlug, $mode)
         );
+    }
+
+    private function getNonceAction(int $sourceId, string $langSlug, string $mode): string
+    {
+        return 'gds_ct_machine_translate_'.$sourceId.'_'.$langSlug.'_'.$mode;
     }
 
     public function handleRequest(): void
@@ -60,8 +87,13 @@ class MachineTranslation
 
         $sourceId = isset($_GET['source_id']) ? (int) $_GET['source_id'] : 0;
         $langSlug = isset($_GET['lang']) ? sanitize_key((string) $_GET['lang']) : '';
+        $mode = isset($_GET['mode']) ? sanitize_key((string) $_GET['mode']) : self::modeAi;
 
-        check_admin_referer('gds_ct_machine_translate_'.$sourceId.'_'.$langSlug);
+        if (! in_array($mode, [self::modeAi, self::modeCopy], true)) {
+            $mode = self::modeAi;
+        }
+
+        check_admin_referer($this->getNonceAction($sourceId, $langSlug, $mode));
 
         $sourcePost = get_post($sourceId);
         $language = PLL()->model->get_language($langSlug);
@@ -74,18 +106,28 @@ class MachineTranslation
             $this->redirectWithNotice('error', __('Translation already exists.', 'gds-content-translation'));
         }
 
-        if (! self::isAvailable()) {
-            $this->redirectWithNotice('error', __('Machine translation is not available.', 'gds-content-translation'));
+        if ($mode === self::modeCopy) {
+            if (! self::isCopyAvailable()) {
+                $this->redirectWithNotice('error', __('Copying the source language is not available.', 'gds-content-translation'));
+            }
+
+            $client = new SourceCopyClient;
+        } else {
+            if (! self::isAvailable()) {
+                $this->redirectWithNotice('error', __('Machine translation is not available.', 'gds-content-translation'));
+            }
+
+            $factory = new Factory(PLL()->model);
+            $service = $factory->get_active_service();
+
+            if (! $service instanceof Service_Interface) {
+                $this->redirectWithNotice('error', __('Machine translation service is not configured.', 'gds-content-translation'));
+            }
+
+            $client = $service->get_client();
         }
 
-        $factory = new Factory(PLL()->model);
-        $service = $factory->get_active_service();
-
-        if (! $service instanceof Service_Interface) {
-            $this->redirectWithNotice('error', __('Machine translation service is not configured.', 'gds-content-translation'));
-        }
-
-        $translationId = $this->translatePost($sourcePost, $language, $service);
+        $translationId = $this->translatePost($sourcePost, $language, $client);
 
         if ($translationId instanceof WP_Error) {
             $this->redirectWithNotice('error', $translationId->get_error_message());
@@ -105,12 +147,15 @@ class MachineTranslation
     }
 
     /**
-     * Machine-translate a post using Polylang Pro's configured service.
+     * Create a translation of a post through Polylang Pro's translation pipeline.
      *
      * Runs the translation directly instead of redirecting through post-new.php
      * and relying on per-user meta toggles, which can fail across environments.
+     *
+     * The client decides what the target strings become: the configured machine
+     * translation service translates them, {@see SourceCopyClient} copies them.
      */
-    private function translatePost(WP_Post $sourcePost, object $targetLang, Service_Interface $service): int|WP_Error
+    private function translatePost(WP_Post $sourcePost, object $targetLang, Client_Interface $client): int|WP_Error
     {
         $polylang = PLL();
 
@@ -125,7 +170,7 @@ class MachineTranslation
         $exporter = new PLL_Export_Data_From_Posts($polylang->model);
         $exporter->send_to_export($container, [$sourcePost], $targetLang);
 
-        $processor = new Processor($polylang, $service->get_client());
+        $processor = new Processor($polylang, $client);
 
         $result = $processor->translate($container);
 

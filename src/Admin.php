@@ -284,6 +284,8 @@ class Admin
         );
         $machineTranslation = new MachineTranslation;
         $machineTranslationAvailable = MachineTranslation::isAvailable();
+        $copyTranslationAvailable = MachineTranslation::isCopyAvailable();
+        $sourceLanguageName = $this->getDefaultLanguageName($languages);
 
         ?>
         <div class="wrap gds-content-translation">
@@ -433,14 +435,36 @@ class Admin
                                                     <span class="gds-content-translation__badge gds-content-translation__badge--missing">
                                                         <?php echo esc_html__('Missing', 'gds-content-translation'); ?>
                                                     </span>
-                                                    <?php if ($machineTranslationAvailable && ! $language['isDefault']) { ?>
-                                                        <a
-                                                            class="button button-small gds-content-translation__translate"
-                                                            href="<?php echo esc_url($machineTranslation->getActionUrl($row['sourceId'], $langSlug, $selectedPostType)); ?>"
-                                                        >
-                                                            <span class="dashicons dashicons-translation gds-content-translation__translate-icon" aria-hidden="true"></span>
-                                                            <?php echo esc_html__('Translate', 'gds-content-translation'); ?>
-                                                        </a>
+                                                    <?php if (! $language['isDefault'] && ($machineTranslationAvailable || $copyTranslationAvailable)) { ?>
+                                                        <span class="gds-content-translation__translate-actions">
+                                                            <?php if ($machineTranslationAvailable) { ?>
+                                                                <a
+                                                                    class="button button-small gds-content-translation__translate"
+                                                                    href="<?php echo esc_url($machineTranslation->getActionUrl($row['sourceId'], $langSlug, $selectedPostType, MachineTranslation::modeAi)); ?>"
+                                                                >
+                                                                    <span class="dashicons dashicons-translation gds-content-translation__translate-icon" aria-hidden="true"></span>
+                                                                    <?php echo esc_html__('AI translation', 'gds-content-translation'); ?>
+                                                                </a>
+                                                            <?php } ?>
+                                                            <?php if ($copyTranslationAvailable) { ?>
+                                                                <a
+                                                                    class="button button-small gds-content-translation__translate"
+                                                                    href="<?php echo esc_url($machineTranslation->getActionUrl($row['sourceId'], $langSlug, $selectedPostType, MachineTranslation::modeCopy)); ?>"
+                                                                    title="<?php echo esc_attr(
+                                                                        $sourceLanguageName !== ''
+                                                                            ? sprintf(
+                                                                                /* translators: %s is the source language name. */
+                                                                                __('Create the translation as an untranslated copy of the %s content.', 'gds-content-translation'),
+                                                                                $sourceLanguageName
+                                                                            )
+                                                                            : __('Create the translation as an untranslated copy of the source content.', 'gds-content-translation')
+                                                                    ); ?>"
+                                                                >
+                                                                    <span class="dashicons dashicons-admin-page gds-content-translation__translate-icon" aria-hidden="true"></span>
+                                                                    <?php echo esc_html__('Copy original', 'gds-content-translation'); ?>
+                                                                </a>
+                                                            <?php } ?>
+                                                        </span>
                                                     <?php } ?>
                                                 </div>
                                             <?php } else { ?>
@@ -617,6 +641,17 @@ class Admin
      * @param  list<array{slug: string, name: string, isDefault: bool}>  $languages
      * @return list<array{sourceId: int, title: string, openNotes: int, languages: array<string, array{postId: int, proofread: bool, openNotes: int}>}>
      */
+    private function getDefaultLanguageName(array $languages): string
+    {
+        foreach ($languages as $language) {
+            if ($language['isDefault']) {
+                return (string) $language['name'];
+            }
+        }
+
+        return '';
+    }
+
     private function getRows(string $postType, array $languages): array
     {
         $defaultSlug = pll_default_language('slug');
