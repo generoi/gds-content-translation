@@ -1,6 +1,6 @@
 # GDS Content Translation
 
-WordPress plugin for Polylang Pro editorial workflows: translation status dashboard, one-click machine translation, block attribute translation rules, post ID sync, and internal link remapping.
+WordPress plugin for Polylang Pro editorial workflows: translation status dashboard, one-click machine translation or source-language copy, block attribute translation rules, post ID sync, and internal link remapping.
 
 Requires [Polylang Pro](https://polylang.pro/) with optional DeepL machine translation.
 
@@ -38,7 +38,12 @@ For local path development (before the package is on Packagist):
 
 ### Translation status admin
 
-Polylang → **Content translation status**: overview of missing translations, proof-read flags, open block notes, and one-click machine translate per language.
+Polylang → **Content translation status**: overview of missing translations, proof-read flags, open block notes, and two ways to create a missing translation per language:
+
+- **AI translation** — machine-translates the source post with Polylang Pro's configured service (DeepL). Only shown when machine translation is enabled and a service is configured.
+- **Copy original** — creates the translation as a verbatim copy of the source (default) language, with no machine translation involved. Needs no service, so it also works when DeepL is unconfigured or out of quota.
+
+Both run through Polylang Pro's translation pipeline, so blocks, internal links, post IDs, terms and metas are remapped to the target language either way, and both create the translation as a **draft** and open it in the editor.
 
 Polylang → **Content translation settings**: choose which post types appear as tabs on the status screen. Unchecked types are hidden from the dashboard UI.
 
