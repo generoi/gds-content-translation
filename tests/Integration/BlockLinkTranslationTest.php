@@ -26,16 +26,18 @@ class BlockLinkTranslationTest extends PolylangTestCase
      */
     private function translateHref(string $href, string $languageSlug): string
     {
-        $this->setCurrentLanguage($languageSlug);
-
         $blocks = parse_blocks(sprintf(
             '<!-- wp:paragraph --><p><a href="%s">Link</a></p><!-- /wp:paragraph -->',
             esc_attr($href)
         ));
 
-        $block = $this->translation->translateBlockOnRender($blocks[0]);
+        $blocks = $this->translation->translateBlocksDuringSync(
+            $blocks,
+            PLL()->model->get_language($languageSlug),
+            get_post($this->target['en'])
+        );
 
-        $processor = new WP_HTML_Tag_Processor($block['innerHTML']);
+        $processor = new WP_HTML_Tag_Processor($blocks[0]['innerHTML']);
         $processor->next_tag(['tag_name' => 'A']);
 
         return (string) $processor->get_attribute('href');
@@ -86,15 +88,19 @@ class BlockLinkTranslationTest extends PolylangTestCase
         );
     }
 
-    /**
-     * render_block_data runs on every frontend render, so the source language
-     * goes through the same rewrite and must keep its parameters too.
-     */
-    public function test_it_keeps_the_query_string_in_the_source_language(): void
+    public function test_it_keeps_a_link_already_in_the_target_language_as_written(): void
     {
-        $href = $this->translateHref($this->relativePermalink($this->target['en']).'?tuote=window', 'en');
+        $lookups = 0;
+        add_filter('url_to_postid', function (string $url) use (&$lookups) {
+            $lookups++;
 
-        $this->assertSame(get_permalink($this->target['en']).'?tuote=window', $href);
+            return $url;
+        });
+
+        $url = $this->relativePermalink($this->target['fi']).'?tuote=window';
+
+        $this->assertSame($url, $this->translateHref($url, 'fi'));
+        $this->assertSame(0, $lookups);
     }
 
     public function test_it_appends_the_query_string_to_a_permalink_that_already_has_one(): void
@@ -111,19 +117,33 @@ class BlockLinkTranslationTest extends PolylangTestCase
 
     public function test_it_translates_a_button_url_attribute(): void
     {
-        $this->setCurrentLanguage('fi');
-
         $blocks = parse_blocks(sprintf(
             '<!-- wp:button {"url":"%s"} --><div class="wp-block-button"></div><!-- /wp:button -->',
             esc_attr($this->relativePermalink($this->target['en']).'?tuote=window')
         ));
 
-        $block = $this->translation->translateBlockOnRender($blocks[0]);
+        $blocks = $this->translation->translateBlocksDuringSync(
+            $blocks,
+            PLL()->model->get_language('fi'),
+            get_post($this->target['en'])
+        );
 
         $this->assertSame(
             get_permalink($this->target['fi']).'?tuote=window',
-            $block['attrs']['url']
+            $blocks[0]['attrs']['url']
         );
+    }
+
+    public function test_it_translates_links_in_nested_blocks_of_saved_content(): void
+    {
+        $content = sprintf(
+            '<!-- wp:group --><div class="wp-block-group"><!-- wp:paragraph --><p><a href="%s">Link</a></p><!-- /wp:paragraph --></div><!-- /wp:group -->',
+            esc_attr($this->relativePermalink($this->target['en']))
+        );
+
+        $translated = $this->translation->translateContent($content, PLL()->model->get_language('fi'));
+
+        $this->assertStringContainsString('href="'.get_permalink($this->target['fi']).'"', $translated);
     }
 
     public function test_it_translates_links_during_sync(): void

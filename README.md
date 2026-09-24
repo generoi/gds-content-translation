@@ -209,9 +209,18 @@ add_filter('gds_content_translation_link_url_attributes_by_block', function (arr
 | ACF text fields | Machine translation, XLIFF import | Yes — saved in post meta |
 | ID sync (`postId`, etc.) | Machine translation, Polylang content sync | Yes |
 | Link remapping (sync hook) | Machine translation, Polylang content sync | Yes |
-| Link remapping (render hook) | Every frontend block render | No — runtime fallback for old content |
+| Link remapping (existing content) | `wp gds-content-translation fix-links` | Yes |
 
 If a translation does not exist for a linked post, IDs become `0` (teaser hidden) and URLs are left unchanged.
+
+Links are fixed in the saved content, not when a page is rendered. For content translated before a sync fixed its links, run once:
+
+```bash
+wp gds-content-translation fix-links --dry-run   # list the posts that would change
+wp gds-content-translation fix-links
+```
+
+Links already in the post's language are left as written.
 
 ## Development
 
