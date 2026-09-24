@@ -160,12 +160,6 @@ class BlockLinkTranslation
             return $url;
         }
 
-        // Already in the target language: keep the link as written rather
-        // than rebuilding it as an absolute permalink.
-        if ($this->languageOfUrl($url) === $targetLanguage->slug) {
-            return $url;
-        }
-
         $postId = url_to_postid($this->toAbsoluteUrl($url));
 
         if ($postId <= 0 || ! function_exists('pll_get_post')) {
@@ -174,7 +168,9 @@ class BlockLinkTranslation
 
         $translatedPostId = (int) pll_get_post($postId, $targetLanguage->slug);
 
-        if ($translatedPostId <= 0) {
+        // No translation, or the link already points at it: keep the link as
+        // written rather than rebuilding it as an absolute permalink.
+        if ($translatedPostId <= 0 || $translatedPostId === $postId) {
             return $url;
         }
 
@@ -216,27 +212,6 @@ class BlockLinkTranslation
         }
 
         return strcasecmp($homeHost, $urlHost) === 0;
-    }
-
-    /**
-     * The language a URL is in, when Polylang puts it in the URL (directory,
-     * subdomain or domain). Null when the language is set from the content,
-     * as the URL then doesn't tell.
-     */
-    private function languageOfUrl(string $url): ?string
-    {
-        if (! function_exists('PLL') || empty(PLL()->links_model) || empty(PLL()->options['force_lang'])) {
-            return null;
-        }
-
-        $slug = PLL()->links_model->get_language_from_url($this->toAbsoluteUrl($url));
-
-        if (is_string($slug) && $slug !== '') {
-            return $slug;
-        }
-
-        // No language in the URL is the default language when it's hidden.
-        return empty(PLL()->options['hide_default']) ? null : (string) PLL()->options['default_lang'];
     }
 
     private function toAbsoluteUrl(string $url): string

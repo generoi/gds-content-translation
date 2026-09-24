@@ -90,17 +90,9 @@ class BlockLinkTranslationTest extends PolylangTestCase
 
     public function test_it_keeps_a_link_already_in_the_target_language_as_written(): void
     {
-        $lookups = 0;
-        add_filter('url_to_postid', function (string $url) use (&$lookups) {
-            $lookups++;
-
-            return $url;
-        });
-
         $url = $this->relativePermalink($this->target['fi']).'?tuote=window';
 
         $this->assertSame($url, $this->translateHref($url, 'fi'));
-        $this->assertSame(0, $lookups);
     }
 
     public function test_it_appends_the_query_string_to_a_permalink_that_already_has_one(): void
