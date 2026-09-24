@@ -6,14 +6,15 @@ use PLL_Language;
 use WP_HTML_Tag_Processor;
 
 /**
- * Rewrites same-site links in block content to the target language equivalent.
+ * Rewrites same-site links in block content to the target language equivalent
+ * when a translation is synced, so links are fixed in the saved content. Older
+ * content is fixed once with `wp gds-content-translation fix-links`.
  */
 class BlockLinkTranslation
 {
     public function __construct()
     {
         add_filter('pll_translate_blocks_with_context', [$this, 'translateBlocksDuringSync'], 10, 3);
-        add_filter('render_block_data', [$this, 'translateBlockOnRender'], 10, 1);
     }
 
     /**
@@ -51,28 +52,34 @@ class BlockLinkTranslation
     }
 
     /**
-     * @param  array<string, mixed>  $parsedBlock
-     * @return array<string, mixed>
+     * Translate the links in serialized block content, nested blocks included.
      */
-    public function translateBlockOnRender(array $parsedBlock): array
+    public function translateContent(string $content, PLL_Language $targetLanguage): string
     {
-        if (is_admin() || ! function_exists('pll_current_language') || ! function_exists('PLL')) {
-            return $parsedBlock;
+        if (! has_blocks($content)) {
+            return $content;
         }
 
-        $languageSlug = pll_current_language();
+        return serialize_blocks($this->translateBlockTree(parse_blocks($content), $targetLanguage));
+    }
 
-        if (! is_string($languageSlug) || $languageSlug === '') {
-            return $parsedBlock;
+    /**
+     * @param  array[]  $blocks
+     * @return array[]
+     */
+    private function translateBlockTree(array $blocks, PLL_Language $targetLanguage): array
+    {
+        foreach ($blocks as $key => $block) {
+            $block = $this->translateBlock($block, $targetLanguage);
+
+            if (! empty($block['innerBlocks'])) {
+                $block['innerBlocks'] = $this->translateBlockTree($block['innerBlocks'], $targetLanguage);
+            }
+
+            $blocks[$key] = $block;
         }
 
-        $targetLanguage = PLL()->model->get_language($languageSlug);
-
-        if (! $targetLanguage instanceof PLL_Language) {
-            return $parsedBlock;
-        }
-
-        return $this->translateBlock($parsedBlock, $targetLanguage);
+        return $blocks;
     }
 
     /**
@@ -161,7 +168,9 @@ class BlockLinkTranslation
 
         $translatedPostId = (int) pll_get_post($postId, $targetLanguage->slug);
 
-        if ($translatedPostId <= 0) {
+        // No translation, or the link already points at it: keep the link as
+        // written rather than rebuilding it as an absolute permalink.
+        if ($translatedPostId <= 0 || $translatedPostId === $postId) {
             return $url;
         }
 

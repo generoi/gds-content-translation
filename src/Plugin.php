@@ -5,6 +5,7 @@ namespace GeneroWP\ContentTranslation;
 use GeneroWP\ContentTranslation\Polylang\BlockLinkTranslation;
 use GeneroWP\ContentTranslation\Polylang\BlockPostIdTranslation;
 use GeneroWP\ContentTranslation\Polylang\BlockRules;
+use GeneroWP\ContentTranslation\Polylang\FixLinksCommand;
 use GeneroWP\ContentTranslation\Polylang\MetaRules;
 
 class Plugin
@@ -36,8 +37,12 @@ class Plugin
         MachineTranslation::init();
 
         new BlockRules;
-        new BlockLinkTranslation;
+        $links = new BlockLinkTranslation;
         new BlockPostIdTranslation;
         new MetaRules;
+
+        if (defined('WP_CLI') && WP_CLI) {
+            \WP_CLI::add_command('gds-content-translation fix-links', new FixLinksCommand($links));
+        }
     }
 }
