@@ -362,4 +362,13 @@
   } else {
     initSearch();
   }
+
+  // Trashing a translation asks first: the link names the post and language.
+  document.addEventListener('click', function (event) {
+    var link = event.target.closest('.gds-content-translation__trash[data-confirm]');
+
+    if (link && !window.confirm(link.getAttribute('data-confirm'))) {
+      event.preventDefault();
+    }
+  });
 })();

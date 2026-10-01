@@ -58,6 +58,99 @@ class Admin
         add_action('admin_enqueue_scripts', [$this, 'enqueueAdminBarAssets']);
         add_action('wp_enqueue_scripts', [$this, 'enqueueAdminBarAssets']);
         add_action('wp_ajax_gds_ct_save_proofread', [$this, 'saveProofread']);
+        add_action('admin_post_'.self::trashAction, [$this, 'handleTrashAction']);
+        add_action('admin_post_'.self::restoreAction, [$this, 'handleTrashAction']);
+        add_action('admin_notices', [$this, 'renderTrashNotice']);
+    }
+
+    private const trashAction = 'gds_ct_trash_translation';
+
+    private const restoreAction = 'gds_ct_restore_translation';
+
+    /**
+     * Where to see a post on the site: its permalink once published, its
+     * preview before that. Empty for post types with no front end (template
+     * parts, patterns).
+     */
+    private static function getViewUrl(int $postId): string
+    {
+        $post = get_post($postId);
+
+        if (! $post || ! is_post_type_viewable($post->post_type)) {
+            return '';
+        }
+
+        $url = $post->post_status === 'publish' ? get_permalink($post) : get_preview_post_link($post);
+
+        return is_string($url) ? $url : '';
+    }
+
+    /** Link that trashes or restores one translation and comes back here. */
+    private static function getTrashActionUrl(string $action, int $postId, string $postType): string
+    {
+        return wp_nonce_url(
+            add_query_arg([
+                'action' => $action,
+                'post' => $postId,
+                'post_type' => $postType,
+            ], admin_url('admin-post.php')),
+            $action.'_'.$postId
+        );
+    }
+
+    /**
+     * Trash or restore a translation from the status screen. Only
+     * translations: the source-language post is never touched here, so the
+     * row itself cannot disappear by accident.
+     */
+    public function handleTrashAction(): void
+    {
+        $action = isset($_GET['action']) ? sanitize_key(wp_unslash($_GET['action'])) : '';
+        $postId = isset($_GET['post']) ? (int) $_GET['post'] : 0;
+        $postType = isset($_GET['post_type']) ? sanitize_key(wp_unslash($_GET['post_type'])) : '';
+
+        check_admin_referer($action.'_'.$postId);
+
+        if ($postId <= 0 || ! get_post($postId) || ! current_user_can('delete_post', $postId)) {
+            wp_die(esc_html__('You are not allowed to change this translation.', 'gds-content-translation'), 403);
+        }
+
+        $language = function_exists('pll_get_post_language') ? pll_get_post_language($postId) : '';
+        if (! $language || $language === pll_default_language('slug')) {
+            wp_die(esc_html__('Only translations can be trashed or restored here.', 'gds-content-translation'), 400);
+        }
+
+        if ($action === self::trashAction) {
+            $done = (bool) wp_trash_post($postId);
+            $notice = 'trashed';
+        } else {
+            // Back to the status it had before it was trashed, not to draft.
+            add_filter('wp_untrash_post_status', $keepPrevious = static fn ($status, $id, $previous) => $previous ?: $status, 10, 3);
+            $done = (bool) wp_untrash_post($postId);
+            remove_filter('wp_untrash_post_status', $keepPrevious, 10);
+            $notice = 'restored';
+        }
+
+        wp_safe_redirect(add_query_arg('gds_ct_notice', $done ? $notice : 'failed', self::getPageUrl($postType)));
+        exit;
+    }
+
+    public function renderTrashNotice(): void
+    {
+        if (($_GET['page'] ?? '') !== self::pageSlug || empty($_GET['gds_ct_notice'])) {
+            return;
+        }
+
+        $messages = [
+            'trashed' => [__('Translation moved to the trash.', 'gds-content-translation'), 'success'],
+            'restored' => [__('Translation restored from the trash.', 'gds-content-translation'), 'success'],
+            'failed' => [__('The translation could not be changed.', 'gds-content-translation'), 'error'],
+        ];
+        $message = $messages[sanitize_key(wp_unslash($_GET['gds_ct_notice']))] ?? null;
+
+        if ($message) {
+            printf('<div class="notice notice-%s is-dismissible"><p>%s</p></div>', esc_attr($message[1]), esc_html($message[0]));
+        }
     }
 
     public function registerMenu(): void
@@ -467,6 +560,21 @@ class Admin
                                                         </span>
                                                     <?php } ?>
                                                 </div>
+                                            <?php } elseif ($cell['trashed']) { ?>
+                                                <div class="gds-content-translation__missing-cell">
+                                                    <span class="gds-content-translation__badge gds-content-translation__badge--missing">
+                                                        <?php echo esc_html__('In trash', 'gds-content-translation'); ?>
+                                                    </span>
+                                                    <span class="gds-content-translation__translate-actions">
+                                                        <a
+                                                            class="button button-small gds-content-translation__translate"
+                                                            href="<?php echo esc_url(self::getTrashActionUrl(self::restoreAction, $cell['postId'], $selectedPostType)); ?>"
+                                                        >
+                                                            <span class="dashicons dashicons-undo gds-content-translation__translate-icon" aria-hidden="true"></span>
+                                                            <?php echo esc_html__('Restore', 'gds-content-translation'); ?>
+                                                        </a>
+                                                    </span>
+                                                </div>
                                             <?php } else { ?>
                                                 <div class="gds-content-translation__cell">
                                                     <span class="gds-content-translation__badge gds-content-translation__badge--exists" aria-hidden="true">✓</span>
@@ -474,6 +582,18 @@ class Admin
                                                         <a class="gds-content-translation__edit" href="<?php echo esc_url(get_edit_post_link($cell['postId'], 'raw')); ?>">
                                                             <?php echo esc_html__('Edit', 'gds-content-translation'); ?>
                                                         </a>
+                                                        <?php $viewUrl = self::getViewUrl($cell['postId']); ?>
+                                                        <?php if ($viewUrl !== '') { ?>
+                                                            <a
+                                                                class="gds-content-translation__edit gds-content-translation__view"
+                                                                href="<?php echo esc_url($viewUrl); ?>"
+                                                                target="_blank"
+                                                                rel="noopener noreferrer"
+                                                            >
+                                                                <?php echo esc_html__('View', 'gds-content-translation'); ?>
+                                                                <span class="screen-reader-text"><?php echo esc_html__('(opens in a new tab)', 'gds-content-translation'); ?></span>
+                                                            </a>
+                                                        <?php } ?>
                                                         <label class="gds-content-translation__proofread">
                                                             <input
                                                                 type="checkbox"
@@ -486,6 +606,20 @@ class Admin
                                                             </span>
                                                         </label>
                                                         <?php $this->renderNotesIndicator($cell['postId'], $cell['openNotes']); ?>
+                                                        <?php if (! $language['isDefault'] && current_user_can('delete_post', $cell['postId'])) { ?>
+                                                            <a
+                                                                class="gds-content-translation__trash"
+                                                                href="<?php echo esc_url(self::getTrashActionUrl(self::trashAction, $cell['postId'], $selectedPostType)); ?>"
+                                                                data-confirm="<?php echo esc_attr(sprintf(
+                                                                    /* translators: 1: post title, 2: language name. */
+                                                                    __('Move the %2$s translation of "%1$s" to the trash?', 'gds-content-translation'),
+                                                                    $row['title'],
+                                                                    $language['name']
+                                                                )); ?>"
+                                                            >
+                                                                <?php echo esc_html__('Trash', 'gds-content-translation'); ?>
+                                                            </a>
+                                                        <?php } ?>
                                                     </span>
                                                 </div>
                                             <?php } ?>
@@ -507,7 +641,7 @@ class Admin
     }
 
     /**
-     * @param  list<array{sourceId: int, title: string, openNotes: int, languages: array<string, array{postId: int, proofread: bool, openNotes: int}>}>  $rows
+     * @param  list<array{sourceId: int, title: string, openNotes: int, languages: array<string, array{postId: int, trashed: bool, proofread: bool, openNotes: int}>}>  $rows
      * @param  list<array{slug: string, name: string, isDefault: bool}>  $languages
      * @return array{
      *     total: int,
@@ -536,7 +670,7 @@ class Admin
             foreach ($rows as $row) {
                 $cell = $row['languages'][$language['slug']] ?? null;
 
-                if ($cell === null) {
+                if ($cell === null || $cell['trashed']) {
                     $missingCount++;
 
                     continue;
@@ -639,7 +773,7 @@ class Admin
 
     /**
      * @param  list<array{slug: string, name: string, isDefault: bool}>  $languages
-     * @return list<array{sourceId: int, title: string, openNotes: int, languages: array<string, array{postId: int, proofread: bool, openNotes: int}>}>
+     * @return list<array{sourceId: int, title: string, openNotes: int, languages: array<string, array{postId: int, trashed: bool, proofread: bool, openNotes: int}>}>
      */
     private function getDefaultLanguageName(array $languages): string
     {
@@ -696,6 +830,9 @@ class Admin
 
                 $languageCells[$language['slug']] = [
                     'postId' => $translationId,
+                    // Polylang keeps a trashed translation linked. It is not a
+                    // translation anyone can read, so it counts as missing.
+                    'trashed' => get_post_status($translationId) === 'trash',
                     'proofread' => (bool) get_post_meta($translationId, GDS_CONTENT_TRANSLATION_META_KEY, true),
                     'openNotes' => $openNoteCounts[$translationId] ?? 0,
                 ];
