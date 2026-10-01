@@ -87,14 +87,65 @@ class BlockLinkTranslationTest extends PolylangTestCase
     }
 
     /**
-     * render_block_data runs on every frontend render, so the source language
-     * goes through the same rewrite and must keep its parameters too.
+     * render_block_data runs on every frontend render. A link that is already
+     * in the page's language is left exactly as written, parameters and all,
+     * without looking the post up.
      */
-    public function test_it_keeps_the_query_string_in_the_source_language(): void
+    public function test_it_leaves_a_link_in_the_source_language_alone(): void
     {
-        $href = $this->translateHref($this->relativePermalink($this->target['en']).'?tuote=window', 'en');
+        $url = $this->relativePermalink($this->target['en']).'?tuote=window';
 
-        $this->assertSame(get_permalink($this->target['en']).'?tuote=window', $href);
+        $this->assertSame($url, $this->translateHref($url, 'en'));
+    }
+
+    public function test_it_leaves_a_link_already_in_the_target_language_alone(): void
+    {
+        global $wpdb;
+
+        // The language is read from the URL; the post is never looked up, so
+        // the path does not have to resolve.
+        $url = '/fi/configurator-fi/?tuote=window';
+        $this->translateHref($url, 'fi'); // Warm Polylang's language cache.
+        $queries = $wpdb->num_queries;
+
+        $this->assertSame($url, $this->translateHref($url, 'fi'));
+        $this->assertSame($queries, $wpdb->num_queries, 'A same-language link must not be resolved.');
+    }
+
+    public function test_it_resolves_a_repeated_link_once(): void
+    {
+        global $wpdb;
+
+        $url = $this->relativePermalink($this->target['en']);
+        $this->translateHref($url, 'fi');
+        $queries = $wpdb->num_queries;
+
+        $this->assertSame(get_permalink($this->target['fi']), $this->translateHref($url, 'fi'));
+        $this->assertSame($queries, $wpdb->num_queries, 'The URL lookup should be cached.');
+    }
+
+    public function test_the_cached_lookup_follows_a_renamed_post(): void
+    {
+        $url = $this->relativePermalink($this->target['en']);
+        $this->translateHref($url, 'fi');
+
+        wp_update_post(['ID' => $this->target['en'], 'post_name' => 'renamed-configurator']);
+
+        // The old path no longer resolves once the post has moved.
+        $this->assertSame($url, $this->translateHref($url, 'fi'));
+        $this->assertSame(
+            get_permalink($this->target['fi']),
+            $this->translateHref($this->relativePermalink($this->target['en']), 'fi')
+        );
+    }
+
+    public function test_render_time_translation_can_be_switched_off(): void
+    {
+        add_filter('gds_content_translation_translate_links_on_render', '__return_false');
+
+        $url = $this->relativePermalink($this->target['en']);
+
+        $this->assertSame($url, $this->translateHref($url, 'fi'));
     }
 
     public function test_it_appends_the_query_string_to_a_permalink_that_already_has_one(): void

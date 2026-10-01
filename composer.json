@@ -35,5 +35,10 @@
         "test": "phpunit",
         "test:wp-env": "wp-env run tests-cli --env-cwd=wp-content/plugins/gds-content-translation vendor/bin/phpunit",
         "build:production": "@composer install --optimize-autoloader --no-dev"
+    },
+    "config": {
+        "platform": {
+            "php": "8.3"
+        }
     }
 }

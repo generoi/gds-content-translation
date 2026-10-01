@@ -1,13 +1,19 @@
+/* Tabs: flex, not core's floats, so a second row always starts on the left
+   whichever tab is active. */
 .gds-content-translation__tabs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.35rem;
   margin: 0 0 1rem;
 }
 
 .gds-content-translation__tabs .nav-tab {
   display: inline-flex;
+  float: none;
   align-items: center;
   gap: 0.35rem;
-  margin-right: 0.35rem;
-  margin-bottom: 0.35rem;
+  margin: 0;
 }
 
 .gds-content-translation__tabs .nav-tab .dashicons {
@@ -48,6 +54,12 @@
   margin: 0;
 }
 
+/* One clear control: the "Clear" button, not the browser's own as well. */
+.gds-content-translation__search-input::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+  appearance: none;
+}
+
 .gds-content-translation__search-clear {
   flex-shrink: 0;
   margin: 0;
@@ -80,57 +92,134 @@
   font-size: 13px;
 }
 
+.gds-content-translation__summary p.description {
+  margin-top: 0.4rem;
+  color: #646970;
+}
+
 .gds-content-translation__summary-stat--missing {
   color: #b32d2e;
   font-weight: 600;
 }
 
+.gds-content-translation__summary .gds-content-translation__filter {
+  font-size: 13px;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 3px;
+}
+
+.gds-content-translation__summary .gds-content-translation__filter[aria-pressed="true"] {
+  padding: 0 0.3rem;
+  border-radius: 2px;
+  background: #2271b1;
+  color: #fff;
+  text-decoration: none;
+}
+
 .gds-content-translation__sep {
   color: #a7aaad;
-  margin: 0 0.25rem;
+  margin: 0 0.35rem;
 }
 
 .gds-content-translation__table {
   table-layout: fixed;
 }
 
+/* Top-aligned: in a row where one cell wraps to two lines, the rest still
+   line up with its first line. */
 .gds-content-translation__table th,
 .gds-content-translation__table td {
   padding: 0.4rem 0.6rem;
-  vertical-align: middle;
+  vertical-align: top;
   font-size: 13px;
 }
 
-.gds-content-translation__table th:first-child,
-.gds-content-translation__table td.gds-content-translation__title {
-  width: 22%;
+/* Language columns: more room on the right than the left, so one column's
+   last action never reads as the next column's first. */
+.gds-content-translation__table td.gds-content-translation__lang {
+  padding-right: 1.25rem;
+}
+
+/* Where focus lands after an action whose row has left the list. */
+.gds-content-translation__notice:focus {
+  outline: 2px solid #2271b1;
+  outline-offset: 2px;
+}
+
+/* Where focus lands after Trash, Restore and Delete permanently. */
+.gds-content-translation__table tbody th.gds-content-translation__title:focus,
+.gds-content-translation__table td.gds-content-translation__lang:focus {
+  outline: 2px solid #2271b1;
+  outline-offset: -2px;
+  scroll-margin-top: calc(var(--wp-admin--admin-bar--height, 32px) + 3rem);
+}
+
+/* The column headings stay in view down a long table. */
+.gds-content-translation__table thead th {
+  position: sticky;
+  top: var(--wp-admin--admin-bar--height, 32px);
+  z-index: 2;
+  background: #fff;
+  box-shadow: inset 0 -1px 0 #c3c4c7;
+}
+
+.gds-content-translation__table .gds-content-translation__title-heading {
+  width: 30%;
+}
+
+.gds-content-translation__source-language {
+  color: #646970;
+  font-weight: 400;
+}
+
+.gds-content-translation__table tbody tr {
+  /* Room for the sticky header when a row is the target of #gds-ct-row-… */
+  scroll-margin-top: calc(var(--wp-admin--admin-bar--height, 32px) + 3rem);
+}
+
+.gds-content-translation__table tbody tr:target > * {
+  background: #f0f6fc;
+}
+
+/* The title column is a <th scope="row">: keep it looking like a cell. */
+.gds-content-translation__table tbody th.gds-content-translation__title {
+  font-weight: 400;
+  text-align: left;
 }
 
 .gds-content-translation__title-cell {
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 0.25rem;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.1rem 0.75rem;
+  min-width: 0;
 }
 
-.gds-content-translation__title a {
+/* Its first line sits on the same 24px line as the actions in the other
+   cells, however many lines the title wraps to. */
+.gds-content-translation__title-link {
+  padding-top: 5px;
   font-weight: 600;
   line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.gds-content-translation__source-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.75rem;
 }
 
 .gds-content-translation__notes {
   display: inline-flex;
   align-items: center;
   gap: 0.2rem;
-  margin-left: 0.75rem;
-  padding-left: 0.75rem;
-  border-left: 1px solid #dcdcde;
-  padding-top: 0.1rem;
-  padding-bottom: 0.1rem;
-  padding-right: 0.35rem;
+  padding: 0.1rem 0.35rem;
   border-radius: 3px;
   background: #fcf9e8;
-  color: #8a6d3b;
+  color: #6d552e;
   font-size: 11px;
   font-weight: 600;
   line-height: 1.3;
@@ -148,41 +237,71 @@
 .gds-content-translation__notes:hover,
 .gds-content-translation__notes:focus {
   background: #f5f0d8;
-  color: #6d552e;
+  color: #50401f;
 }
 
-.gds-content-translation__lang {
-  min-width: 9rem;
-}
-
+/* Cells wrap inside their own column; nothing spills into the next one. */
 .gds-content-translation__cell,
-.gds-content-translation__missing-cell,
-.gds-content-translation__lang > .gds-content-translation__badge {
+.gds-content-translation__missing-cell {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
+  gap: 0.25rem 0.5rem;
+  min-width: 0;
   min-height: 1.75rem;
 }
 
-.gds-content-translation__missing-cell {
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 0.35rem;
+/* One line when the column has room, two when it does not. */
+.gds-content-translation__cell {
+  gap: 0.1rem 1rem;
+}
+
+.gds-content-translation__cell-main,
+.gds-content-translation__cell-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.15rem 0.75rem;
+  min-width: 0;
+}
+
+/* Trash follows Proof read on the same gap: on the second line when the
+   column is narrow, so still apart from Edit and View. */
+.gds-content-translation__cell-meta {
+  flex: 0 1 auto;
 }
 
 .gds-content-translation__translate-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.25rem;
+  align-items: center;
+  gap: 0.25rem 0.5rem;
+  min-width: 0;
 }
 
-.gds-content-translation__translate {
-  display: inline-flex !important;
+/* At least 24px tall (WCAG 2.2 target size), WordPress's button-small. */
+.gds-content-translation__translate.button {
+  display: inline-flex;
   align-items: center;
   gap: 0.25rem;
-  font-size: 11px !important;
-  line-height: 1.4 !important;
-  min-height: 0 !important;
-  padding: 0 0.5rem !important;
+  min-height: 24px;
+  padding: 0 0.5rem;
+  font-size: 12px;
+  line-height: 22px;
+}
+
+.gds-content-translation__translate--link.button-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  min-height: 24px;
+  font-size: 12px;
+  text-decoration: none;
+}
+
+.gds-content-translation__translate--link.button-link:hover,
+.gds-content-translation__translate--link.button-link:focus {
+  text-decoration: underline;
 }
 
 .gds-content-translation__translate-icon {
@@ -190,17 +309,6 @@
   height: 14px;
   font-size: 14px;
   line-height: 1;
-}
-
-.gds-content-translation__cell {
-  gap: 0.5rem;
-}
-
-.gds-content-translation__actions {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.75rem;
-  min-width: 0;
 }
 
 .gds-content-translation__badge {
@@ -221,19 +329,39 @@
   color: #007017;
 }
 
-.gds-content-translation__badge--missing {
-  background: #fcf0f1;
-  color: #b32d2e;
+.gds-content-translation__badge--missing,
+.gds-content-translation__badge--trashed {
   width: auto;
   height: auto;
   min-height: 1.25rem;
+  /* Centred on a 24px line whether or not a button shares it. */
+  margin-block: 2px;
   padding: 0.1rem 0.4rem;
+}
+
+.gds-content-translation__badge--missing {
+  background: #fcf0f1;
+  color: #b32d2e;
+}
+
+/* In the trash is a state, not an alarm: grey, with the trash can. */
+.gds-content-translation__badge--trashed {
+  gap: 0.15rem;
+  background: #f0f0f1;
+  color: #50575e;
+}
+
+.gds-content-translation__badge--trashed .dashicons {
+  width: 14px;
+  height: 14px;
+  font-size: 14px;
+  line-height: 1;
 }
 
 .gds-content-translation__edit {
   flex-shrink: 0;
   font-size: 13px;
-  line-height: 1.75rem;
+  line-height: 1.5rem;
   text-decoration: none;
 }
 
@@ -244,18 +372,14 @@
 
 .gds-content-translation__proofread {
   display: inline-flex;
-  flex-shrink: 0;
   align-items: center;
   gap: 0.35rem;
   margin: 0;
-  padding-left: 0.75rem;
-  border-left: 1px solid #dcdcde;
   font-size: 12px;
-  line-height: 1.75rem;
+  line-height: 1.5rem;
   color: #50575e;
   cursor: pointer;
   user-select: none;
-  white-space: nowrap;
 }
 
 .gds-content-translation__proofread-input {
@@ -267,7 +391,7 @@
 }
 
 .gds-content-translation__proofread-label {
-  line-height: 1;
+  line-height: 1.2;
 }
 
 .gds-content-translation__proofread-input.is-saving {
@@ -279,11 +403,23 @@
   font-weight: 600;
 }
 
+.gds-content-translation__proofread-error {
+  flex-basis: 100%;
+  color: #b32d2e;
+  font-size: 12px;
+}
+
+/* One canvas for the page, printed with it and never removed: adding and
+   removing a child of <body> restyles the whole document. Shown by an inline
+   style while a burst runs (a class or [hidden] change can do the same). */
 .gds-content-translation__celebration-canvas {
   position: fixed;
   inset: 0;
+  width: 100vw;
+  height: 100vh;
   z-index: 999999;
   pointer-events: none;
+  visibility: hidden;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -292,23 +428,98 @@
   }
 }
 
-/* Trash a translation: WordPress's own destructive link colour. */
-.gds-content-translation__trash {
+/* Destructive links: WordPress's own destructive link colour. */
+.gds-content-translation__trash,
+.gds-content-translation__delete {
   flex-shrink: 0;
   color: #b32d2e;
-  font-size: 13px;
-  line-height: 1.75rem;
+  font-size: 12px;
+  line-height: 1.5rem;
   text-decoration: none;
 }
 
 .gds-content-translation__trash:hover,
-.gds-content-translation__trash:focus {
+.gds-content-translation__trash:focus,
+.gds-content-translation__delete:hover,
+.gds-content-translation__delete:focus {
   color: #b32d2e;
   text-decoration: underline;
+}
+
+/* Delete permanently comes last, set apart from Restore and the create links
+   by a wider gap. A gap, not a separator: a border would be left dangling at
+   the start of the line whenever it wraps. */
+.gds-content-translation__missing-cell--trashed .gds-content-translation__translate-actions {
+  column-gap: 1rem;
 }
 
 /* A translation being created in another tab, until this screen reloads. */
 .gds-content-translation__badge.is-creating {
   color: #1d2327;
   background: #f0f0f1;
+}
+
+.gds-content-translation__missing-cell.is-busy .gds-content-translation__translate-actions a {
+  opacity: 0.5;
+  pointer-events: none;
+  cursor: default;
+}
+
+@media screen and (max-width: 782px) {
+  .gds-content-translation__table .gds-content-translation__title-heading {
+    width: 34%;
+  }
+
+  .gds-content-translation__table th,
+  .gds-content-translation__table td {
+    padding: 0.5rem 0.4rem;
+  }
+
+  .gds-content-translation__proofread-input {
+    width: 1.25rem;
+    height: 1.25rem;
+  }
+
+  /* Core makes every .button 40px tall here; the link actions beside them
+     stay 24px. Keep the buttons at the same 24px so a cell's actions match. */
+  .wp-core-ui .gds-content-translation__translate.button {
+    min-height: 24px;
+    margin-bottom: 0;
+    padding: 0 0.5rem;
+    font-size: 12px;
+    line-height: 22px;
+  }
+}
+
+/* Phones: one card per post, each language labelled in its own cell. */
+@media screen and (max-width: 600px) {
+  .gds-content-translation__table thead {
+    display: none;
+  }
+
+  .gds-content-translation__table,
+  .gds-content-translation__table tbody,
+  .gds-content-translation__table tr,
+  .gds-content-translation__table tbody th,
+  .gds-content-translation__table tbody td {
+    display: block;
+    width: auto;
+  }
+
+  .gds-content-translation__table tbody tr {
+    padding: 0.35rem 0;
+    border-bottom: 1px solid #dcdcde;
+  }
+
+  .gds-content-translation__table tbody tr[hidden] {
+    display: none;
+  }
+
+  .gds-content-translation__table tbody td[data-lang-name]::before {
+    content: attr(data-lang-name);
+    display: block;
+    color: #50575e;
+    font-size: 12px;
+    font-weight: 600;
+  }
 }

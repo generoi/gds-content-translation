@@ -2,6 +2,7 @@
 
 namespace GeneroWP\ContentTranslation\Polylang;
 
+use GeneroWP\ContentTranslation\Request;
 use PLL_Language;
 use WP_Post;
 use WP_REST_Request;
@@ -244,12 +245,15 @@ class BlockPostIdTranslation
             return false;
         }
 
-        wp_update_post([
+        // wp_update_post() expects slashed data: unslashed, every JSON escape
+        // in the block attributes (\u0022, \u003c, ...) and every backslash in
+        // the HTML would be stripped.
+        $result = wp_update_post(wp_slash([
             'ID' => $postId,
             'post_content' => $normalized,
-        ]);
+        ]), true);
 
-        return true;
+        return ! is_wp_error($result) && (int) $result > 0;
     }
 
     private function resolveLanguageSlug(): ?string
@@ -277,8 +281,14 @@ class BlockPostIdTranslation
 
     private function resolveEditedPostId(): int
     {
-        if (isset($_GET['post'])) {
-            return (int) $_GET['post'];
+        // Only in the admin: on the front end ?post=<id> is anyone's to add,
+        // and would remap IDs into that post's language instead of the page's.
+        if (is_admin()) {
+            $postId = Request::id($_GET, 'post');
+
+            if ($postId > 0) {
+                return $postId;
+            }
         }
 
         global $post;
