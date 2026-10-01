@@ -102,8 +102,20 @@ class MachineTranslation
             $this->redirectWithNotice('error', __('Invalid translation request.', 'gds-content-translation'));
         }
 
-        if (pll_get_post($sourceId, $langSlug)) {
+        $existing = (int) pll_get_post($sourceId, $langSlug);
+
+        if ($existing && get_post_status($existing) !== 'trash') {
             $this->redirectWithNotice('error', __('Translation already exists.', 'gds-content-translation'));
+        }
+
+        // A translation in the trash is still linked to its source, and
+        // Polylang would refuse a second one for the same language. Unlink
+        // it: it stays in the trash, now on its own, and the new translation
+        // takes its place in the group.
+        if ($existing) {
+            $translations = pll_get_post_translations($sourceId);
+            unset($translations[$langSlug]);
+            pll_save_post_translations($translations);
         }
 
         if ($mode === self::modeCopy) {

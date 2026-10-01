@@ -307,6 +307,7 @@ class Admin
         wp_localize_script('gds-content-translation', 'contentTranslationStatus', [
             'ajaxUrl' => admin_url('admin-ajax.php'),
             'nonce' => wp_create_nonce('gds_content_translation'),
+            'creating' => __('Creating…', 'gds-content-translation'),
             'search' => [
                 'noMatches' => __('No matches', 'gds-content-translation'),
                 'matchCount' => __('1 match', 'gds-content-translation'),
@@ -523,10 +524,12 @@ class Admin
                                         $cell = $row['languages'][$langSlug] ?? null;
                                         ?>
                                         <td class="gds-content-translation__lang">
-                                            <?php if ($cell === null) { ?>
+                                            <?php if ($cell === null || $cell['trashed']) { ?>
                                                 <div class="gds-content-translation__missing-cell">
                                                     <span class="gds-content-translation__badge gds-content-translation__badge--missing">
-                                                        <?php echo esc_html__('Missing', 'gds-content-translation'); ?>
+                                                        <?php echo $cell === null
+                                                            ? esc_html__('Missing', 'gds-content-translation')
+                                                            : esc_html__('In trash', 'gds-content-translation'); ?>
                                                     </span>
                                                     <?php if (! $language['isDefault'] && ($machineTranslationAvailable || $copyTranslationAvailable)) { ?>
                                                         <span class="gds-content-translation__translate-actions">
@@ -563,21 +566,18 @@ class Admin
                                                             <?php } ?>
                                                         </span>
                                                     <?php } ?>
-                                                </div>
-                                            <?php } elseif ($cell['trashed']) { ?>
-                                                <div class="gds-content-translation__missing-cell">
-                                                    <span class="gds-content-translation__badge gds-content-translation__badge--missing">
-                                                        <?php echo esc_html__('In trash', 'gds-content-translation'); ?>
-                                                    </span>
-                                                    <span class="gds-content-translation__translate-actions">
-                                                        <a
-                                                            class="button button-small gds-content-translation__translate"
-                                                            href="<?php echo esc_url(self::getTrashActionUrl(self::restoreAction, $cell['postId'], $selectedPostType)); ?>"
-                                                        >
-                                                            <span class="dashicons dashicons-undo gds-content-translation__translate-icon" aria-hidden="true"></span>
-                                                            <?php echo esc_html__('Restore', 'gds-content-translation'); ?>
-                                                        </a>
-                                                    </span>
+                                                    <?php if ($cell !== null) { ?>
+                                                        <span class="gds-content-translation__translate-actions">
+                                                            <a
+                                                                class="button button-small gds-content-translation__translate gds-content-translation__restore"
+                                                                href="<?php echo esc_url(self::getTrashActionUrl(self::restoreAction, $cell['postId'], $selectedPostType)); ?>"
+                                                                title="<?php echo esc_attr__('Bring back the trashed translation instead of creating a new one.', 'gds-content-translation'); ?>"
+                                                            >
+                                                                <span class="dashicons dashicons-undo gds-content-translation__translate-icon" aria-hidden="true"></span>
+                                                                <?php echo esc_html__('Restore', 'gds-content-translation'); ?>
+                                                            </a>
+                                                        </span>
+                                                    <?php } ?>
                                                 </div>
                                             <?php } else { ?>
                                                 <div class="gds-content-translation__cell">

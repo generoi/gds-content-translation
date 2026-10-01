@@ -306,3 +306,9 @@
   color: #b32d2e;
   text-decoration: underline;
 }
+
+/* A translation being created in another tab, until this screen reloads. */
+.gds-content-translation__badge.is-creating {
+  color: #1d2327;
+  background: #f0f0f1;
+}
