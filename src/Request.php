@@ -48,4 +48,25 @@ final class Request
 
         return (int) $value;
     }
+
+    /**
+     * A comma-separated list of positive IDs, unique and sorted. Empty when
+     * missing, not a string, or when any part is not a whole number.
+     *
+     * @param  array<string|int, mixed>  $source
+     * @return list<int>
+     */
+    public static function ids(array $source, string $name): array
+    {
+        $value = $source[$name] ?? '';
+
+        if (! is_string($value) || preg_match('/^\d{1,19}(,\d{1,19})*$/', $value) !== 1) {
+            return [];
+        }
+
+        $ids = array_values(array_unique(array_filter(array_map('intval', explode(',', $value)))));
+        sort($ids);
+
+        return $ids;
+    }
 }

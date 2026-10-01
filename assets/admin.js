@@ -697,9 +697,73 @@
     window.location.reload();
   });
 
+  /* ---------------------------------------------------------------------
+   * Focus after Trash, Restore, Delete permanently, Trash all and Undo
+   *
+   * The link is gone once the screen has reloaded, so focus would start from
+   * the top of the page. Put it on the cell the action was taken in (its
+   * Restore or Edit is then one Tab away), or on the title cell for an
+   * action on the whole row, and announce the notice. With no such cell (a
+   * row moved to the trash, say), focus the notice itself, which reads it out
+   * and puts its Undo one Tab away.
+   * ------------------------------------------------------------------- */
+
+  function findActionCell(notice) {
+    var rowId = notice.getAttribute('data-focus-row');
+    var lang = notice.getAttribute('data-focus-lang');
+    var row = rowId ? document.getElementById(rowId) : null;
+
+    if (!row || row.hidden) {
+      return null;
+    }
+
+    if (!lang) {
+      return row.cells[0];
+    }
+
+    var heading = row.closest('table').querySelector('thead th[data-lang="' + lang + '"]');
+
+    return heading ? row.cells[heading.cellIndex] || null : null;
+  }
+
+  function focusAfterAction() {
+    var notices = Array.prototype.slice.call(document.querySelectorAll('[data-gds-ct-notice]'));
+
+    if (!notices.length) {
+      return;
+    }
+
+    // The last notice is the action just taken; earlier ones came from
+    // other tabs.
+    var latest = notices[notices.length - 1];
+    var cell = findActionCell(latest);
+
+    if (!cell) {
+      latest.focus();
+      return;
+    }
+
+    cell.setAttribute('tabindex', '-1');
+    cell.focus();
+
+    announce(notices.map(function (notice) {
+      var message = notice.querySelector('.gds-content-translation__notice-message');
+
+      return (message || notice).textContent.trim();
+    }).join(' '));
+  }
+
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', initSearch);
   } else {
     initSearch();
+  }
+
+  // After load: WordPress moves notices under the heading on DOM ready, and
+  // moving a focused element drops its focus.
+  if (document.readyState === 'complete') {
+    focusAfterAction();
+  } else {
+    window.addEventListener('load', focusAfterAction);
   }
 })();

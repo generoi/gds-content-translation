@@ -18,6 +18,10 @@ class Admin
 
     private const deleteAction = 'gds_ct_delete_translation';
 
+    private const trashRowAction = 'gds_ct_trash_row';
+
+    private const restoreRowAction = 'gds_ct_restore_row';
+
     public static function getPageSlug(): string
     {
         return self::pageSlug;
@@ -77,6 +81,8 @@ class Admin
         add_action('admin_post_'.self::trashAction, [$this, 'handleTranslationAction']);
         add_action('admin_post_'.self::restoreAction, [$this, 'handleTranslationAction']);
         add_action('admin_post_'.self::deleteAction, [$this, 'handleTranslationAction']);
+        add_action('admin_post_'.self::trashRowAction, [$this, 'handleRowAction']);
+        add_action('admin_post_'.self::restoreRowAction, [$this, 'handleRowAction']);
         add_action('admin_notices', [$this, 'renderNotices']);
     }
 
@@ -109,6 +115,59 @@ class Admin
             'post_type' => $postType,
             '_wpnonce' => wp_create_nonce($action.'_'.$postId),
         ], '', '&');
+    }
+
+    /**
+     * Link that trashes a source post together with all its translations.
+     */
+    private static function getRowTrashUrl(int $sourceId, string $postType): string
+    {
+        return admin_url('admin-post.php').'?'.http_build_query([
+            'action' => self::trashRowAction,
+            'post' => $sourceId,
+            'post_type' => $postType,
+            '_wpnonce' => wp_create_nonce(self::trashRowAction.'_'.$sourceId),
+        ], '', '&');
+    }
+
+    /**
+     * Undo for Trash all: restores exactly the posts it trashed. The nonce
+     * covers the list, so it cannot be widened to other posts.
+     *
+     * @param  list<int>  $postIds  Sorted.
+     */
+    private static function getRowRestoreUrl(int $sourceId, array $postIds, string $postType): string
+    {
+        return admin_url('admin-post.php').'?'.http_build_query([
+            'action' => self::restoreRowAction,
+            'post' => $sourceId,
+            'ids' => implode(',', $postIds),
+            'post_type' => $postType,
+            '_wpnonce' => wp_create_nonce(self::rowRestoreNonceAction($sourceId, $postIds)),
+        ], '', '&');
+    }
+
+    /**
+     * @param  list<int>  $postIds
+     */
+    private static function rowRestoreNonceAction(int $sourceId, array $postIds): string
+    {
+        return self::restoreRowAction.'_'.$sourceId.'_'.implode(',', $postIds);
+    }
+
+    /**
+     * Back from the trash with the status it had before it was trashed, not
+     * as a draft.
+     */
+    private static function untrash(int $postId): bool
+    {
+        $keepPrevious = static fn ($status, $id, $previous) => $previous ?: $status;
+
+        add_filter('wp_untrash_post_status', $keepPrevious, 10, 3);
+        $done = get_post_status($postId) === 'trash' && (bool) wp_untrash_post($postId);
+        remove_filter('wp_untrash_post_status', $keepPrevious, 10);
+
+        return $done;
     }
 
     /**
@@ -166,10 +225,7 @@ class Admin
             $message = $done ? __('The %2$s translation of “%1$s” was moved to the trash.', 'gds-content-translation')
                 : __('The %2$s translation of “%1$s” could not be moved to the trash.', 'gds-content-translation');
         } elseif ($action === self::restoreAction) {
-            // Back to the status it had before it was trashed, not to draft.
-            add_filter('wp_untrash_post_status', $keepPrevious = static fn ($status, $id, $previous) => $previous ?: $status, 10, 3);
-            $done = $post->post_status === 'trash' && (bool) wp_untrash_post($postId);
-            remove_filter('wp_untrash_post_status', $keepPrevious, 10);
+            $done = self::untrash($postId);
             /* translators: 1: post title, 2: language name. */
             $message = $done ? __('The %2$s translation of “%1$s” was restored from the trash.', 'gds-content-translation')
                 : __('The %2$s translation of “%1$s” could not be restored.', 'gds-content-translation');
@@ -190,14 +246,153 @@ class Admin
             wp_die(esc_html__('Unknown action.', 'gds-content-translation'), '', ['response' => 400, 'back_link' => true]);
         }
 
+        // Focus comes back to the cell the action was taken in.
         Notice::flash(
             $done ? 'success' : 'error',
             sprintf($message, $title, $languageName),
             $undoUrl,
-            $undoUrl !== '' ? __('Undo', 'gds-content-translation') : ''
+            $undoUrl !== '' ? __('Undo', 'gds-content-translation') : '',
+            $sourceId > 0 ? self::rowAnchor($sourceId) : '',
+            $sourceId > 0 ? (string) $languageSlug : ''
         );
 
         wp_safe_redirect($returnUrl);
+        exit;
+    }
+
+    /**
+     * Trash all: a source post and every translation of it, in one go; and
+     * its Undo. Separate from handleTranslationAction, which never touches a
+     * source post. All or nothing on permissions: if any post in the group may
+     * not be deleted by this user, nothing is changed.
+     */
+    public function handleRowAction(): void
+    {
+        $action = substr((string) current_action(), strlen('admin_post_'));
+        $sourceId = Request::id($_GET, 'post');
+        $postType = Request::key($_GET, 'post_type');
+        $restoreIds = $action === self::restoreRowAction ? Request::ids($_GET, 'ids') : [];
+
+        check_admin_referer($action === self::restoreRowAction ? self::rowRestoreNonceAction($sourceId, $restoreIds) : $action.'_'.$sourceId);
+
+        if ($action !== self::trashRowAction && $action !== self::restoreRowAction) {
+            wp_die(esc_html__('Unknown action.', 'gds-content-translation'), '', ['response' => 400, 'back_link' => true]);
+        }
+
+        $returnUrl = self::getPageUrl($postType);
+        $source = $sourceId > 0 ? get_post($sourceId) : null;
+
+        if (! $source) {
+            Notice::flash('error', __('That post no longer exists. It may have been deleted in another tab.', 'gds-content-translation'));
+            wp_safe_redirect($returnUrl);
+            exit;
+        }
+
+        if (pll_get_post_language($sourceId) !== pll_default_language('slug')) {
+            Notice::flash('error', __('Only a post in the default language can be trashed together with its translations.', 'gds-content-translation'));
+            wp_safe_redirect($returnUrl);
+            exit;
+        }
+
+        $title = get_the_title($sourceId);
+        $title = $title !== '' ? $title : __('(no title)', 'gds-content-translation');
+        $rowAnchor = self::rowAnchor($sourceId);
+        $group = array_values(array_unique(array_map('intval', array_merge([$sourceId], pll_get_post_translations($sourceId)))));
+
+        foreach ($group as $postId) {
+            if (! current_user_can('delete_post', $postId)) {
+                /* translators: %s: post title. */
+                Notice::flash('error', sprintf(__('You are not allowed to trash every translation of “%s”, so nothing was changed.', 'gds-content-translation'), $title), '', '', $rowAnchor);
+                wp_safe_redirect($returnUrl.'#'.$rowAnchor);
+                exit;
+            }
+        }
+
+        if ($action === self::trashRowAction) {
+            // Translations first, the source last: if anything fails, the row
+            // is still on the screen to try again from.
+            $targets = array_values(array_filter(
+                array_merge(array_diff($group, [$sourceId]), [$sourceId]),
+                static fn (int $postId): bool => ! in_array(get_post_status($postId), [false, 'trash'], true)
+            ));
+            $changed = [];
+
+            foreach ($targets as $postId) {
+                if (wp_trash_post($postId)) {
+                    $changed[] = $postId;
+                }
+            }
+
+            sort($changed);
+            $translations = count(array_diff($changed, [$sourceId]));
+
+            if ($targets === []) {
+                /* translators: %s: post title. */
+                $message = sprintf(__('“%s” is already in the trash.', 'gds-content-translation'), $title);
+            } elseif (count($changed) === count($targets)) {
+                $message = $translations > 0
+                    /* translators: 1: post title, 2: number of translations. */
+                    ? sprintf(_n('“%1$s” and its %2$d translation were moved to the trash.', '“%1$s” and its %2$d translations were moved to the trash.', $translations, 'gds-content-translation'), $title, $translations)
+                    /* translators: %s: post title. */
+                    : sprintf(__('“%s” was moved to the trash.', 'gds-content-translation'), $title);
+            } else {
+                /* translators: 1: post title, 2: posts trashed, 3: posts to trash. */
+                $message = sprintf(__('“%1$s” could not be moved to the trash completely: %2$d of %3$d posts were.', 'gds-content-translation'), $title, count($changed), count($targets));
+            }
+
+            $done = $targets !== [] && count($changed) === count($targets);
+            $undoUrl = $changed !== [] ? self::getRowRestoreUrl($sourceId, $changed, $postType) : '';
+
+            // The row is gone from the list: focus goes to the notice and its
+            // Undo, unless the source is still there.
+            $stillListed = get_post_status($sourceId) !== 'trash';
+            Notice::flash(
+                $done ? 'success' : 'error',
+                $message,
+                $undoUrl,
+                $undoUrl !== '' ? __('Undo', 'gds-content-translation') : '',
+                $stillListed ? $rowAnchor : ''
+            );
+            wp_safe_redirect($returnUrl.($stillListed ? '#'.$rowAnchor : ''));
+            exit;
+        }
+
+        // Undo: only what Trash all took, while it is still in the trash and
+        // still part of this post's translations.
+        $targets = array_values(array_filter($restoreIds, static fn (int $postId): bool => in_array($postId, $group, true) && get_post_status($postId) === 'trash'));
+        $changed = [];
+
+        foreach ($targets as $postId) {
+            if (self::untrash($postId)) {
+                $changed[] = $postId;
+            }
+        }
+
+        $translations = count(array_diff($changed, [$sourceId]));
+
+        if ($targets === []) {
+            /* translators: %s: post title. */
+            $message = sprintf(__('Nothing of “%s” is in the trash any more.', 'gds-content-translation'), $title);
+        } elseif (count($changed) === count($targets)) {
+            $message = $translations > 0
+                /* translators: 1: post title, 2: number of translations. */
+                ? sprintf(_n('“%1$s” and its %2$d translation were restored from the trash.', '“%1$s” and its %2$d translations were restored from the trash.', $translations, 'gds-content-translation'), $title, $translations)
+                /* translators: %s: post title. */
+                : sprintf(__('“%s” was restored from the trash.', 'gds-content-translation'), $title);
+        } else {
+            /* translators: 1: post title, 2: posts restored, 3: posts to restore. */
+            $message = sprintf(__('“%1$s” could not be restored completely: %2$d of %3$d posts were.', 'gds-content-translation'), $title, count($changed), count($targets));
+        }
+
+        $stillListed = get_post_status($sourceId) !== 'trash';
+        Notice::flash(
+            $targets !== [] && count($changed) === count($targets) ? 'success' : 'error',
+            $message,
+            '',
+            '',
+            $stillListed ? $rowAnchor : ''
+        );
+        wp_safe_redirect($returnUrl.($stillListed ? '#'.$rowAnchor : ''));
         exit;
     }
 
@@ -745,11 +940,57 @@ class Admin
         }
 
         $meta .= $this->renderNotesIndicator((string) $editUrl, $row['openNotes']);
+        $meta .= $this->renderRowTrash($row, $context);
 
         return sprintf(
             '<th scope="row" class="gds-content-translation__title"><div class="gds-content-translation__title-cell">%1$s%2$s</div></th>',
             $link,
             $meta !== '' ? '<span class="gds-content-translation__source-actions">'.$meta.'</span>' : ''
+        );
+    }
+
+    /**
+     * Trash all: the source and every translation of it. Only offered when
+     * this user may delete every one of them; the handler checks again.
+     *
+     * @param  array<string, mixed>  $row
+     * @param  array<string, mixed>  $context
+     */
+    private function renderRowTrash(array $row, array $context): string
+    {
+        if (! $this->canDelete($row['sourceId'], $context)) {
+            return '';
+        }
+
+        // Counted for the confirmation: the ones not in the trash already.
+        $translations = 0;
+
+        // The row's languages include the source language's own cell.
+        foreach ($row['languages'] as $cell) {
+            if ($cell['postId'] === $row['sourceId']) {
+                continue;
+            }
+
+            if (! $this->canDelete($cell['postId'], $context)) {
+                return '';
+            }
+
+            $translations += $cell['trashed'] ? 0 : 1;
+        }
+
+        $question = $translations > 0
+            /* translators: 1: post title, 2: number of translations. */
+            ? sprintf(_n('Move "%1$s" and its %2$d translation to the trash?', 'Move "%1$s" and its %2$d translations to the trash?', $translations, 'gds-content-translation'), $row['title'], $translations)
+            /* translators: %s: post title. */
+            : sprintf(__('Move "%s" to the trash?', 'gds-content-translation'), $row['title']);
+
+        return sprintf(
+            '<a class="gds-content-translation__trash gds-content-translation__trash-row" href="%1$s" data-confirm="%2$s">%3$s<span class="screen-reader-text"> %4$s</span></a>',
+            esc_url(self::getRowTrashUrl($row['sourceId'], $context['postType'])),
+            esc_attr($question),
+            esc_html__('Trash all', 'gds-content-translation'),
+            /* translators: %s: post title. */
+            esc_html(sprintf(__('“%s” and its translations', 'gds-content-translation'), $row['title']))
         );
     }
 

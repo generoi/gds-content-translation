@@ -58,4 +58,24 @@ class RequestTest extends WP_UnitTestCase
     {
         $this->assertSame(0, Request::id([], 'post'));
     }
+
+    public function test_it_reads_a_list_of_ids(): void
+    {
+        $this->assertSame([3, 12, 40], Request::ids(['ids' => '40,3,12,3'], 'ids'));
+        $this->assertSame([7], Request::ids(['ids' => '7'], 'ids'));
+    }
+
+    /**
+     * One bad part spoils the list: a partial list would act on fewer posts
+     * than the nonce was made for.
+     */
+    public function test_a_malformed_list_of_ids_is_empty(): void
+    {
+        $this->assertSame([], Request::ids(['ids' => '1,x'], 'ids'));
+        $this->assertSame([], Request::ids(['ids' => '1,,2'], 'ids'));
+        $this->assertSame([], Request::ids(['ids' => '-1'], 'ids'));
+        $this->assertSame([], Request::ids(['ids' => ['1']], 'ids'));
+        $this->assertSame([], Request::ids(['ids' => ''], 'ids'));
+        $this->assertSame([], Request::ids([], 'ids'));
+    }
 }

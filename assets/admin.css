@@ -126,11 +126,33 @@
   table-layout: fixed;
 }
 
+/* Top-aligned: in a row where one cell wraps to two lines, the rest still
+   line up with its first line. */
 .gds-content-translation__table th,
 .gds-content-translation__table td {
   padding: 0.4rem 0.6rem;
-  vertical-align: middle;
+  vertical-align: top;
   font-size: 13px;
+}
+
+/* Language columns: more room on the right than the left, so one column's
+   last action never reads as the next column's first. */
+.gds-content-translation__table td.gds-content-translation__lang {
+  padding-right: 1.25rem;
+}
+
+/* Where focus lands after an action whose row has left the list. */
+.gds-content-translation__notice:focus {
+  outline: 2px solid #2271b1;
+  outline-offset: 2px;
+}
+
+/* Where focus lands after Trash, Restore and Delete permanently. */
+.gds-content-translation__table tbody th.gds-content-translation__title:focus,
+.gds-content-translation__table td.gds-content-translation__lang:focus {
+  outline: 2px solid #2271b1;
+  outline-offset: -2px;
+  scroll-margin-top: calc(var(--wp-admin--admin-bar--height, 32px) + 3rem);
 }
 
 /* The column headings stay in view down a long table. */
@@ -174,7 +196,10 @@
   min-width: 0;
 }
 
+/* Its first line sits on the same 24px line as the actions in the other
+   cells, however many lines the title wraps to. */
 .gds-content-translation__title-link {
+  padding-top: 5px;
   font-weight: 600;
   line-height: 1.3;
   overflow-wrap: anywhere;
@@ -240,13 +265,10 @@
   min-width: 0;
 }
 
+/* Trash follows Proof read on the same gap: on the second line when the
+   column is narrow, so still apart from Edit and View. */
 .gds-content-translation__cell-meta {
-  flex: 1 0 auto;
-}
-
-/* Trash at the far end, away from Edit and View. */
-.gds-content-translation__cell-meta .gds-content-translation__trash {
-  margin-left: auto;
+  flex: 0 1 auto;
 }
 
 .gds-content-translation__translate-actions {
@@ -312,6 +334,8 @@
   width: auto;
   height: auto;
   min-height: 1.25rem;
+  /* Centred on a 24px line whether or not a button shares it. */
+  margin-block: 2px;
   padding: 0.1rem 0.4rem;
 }
 
@@ -422,10 +446,11 @@
   text-decoration: underline;
 }
 
-/* Delete permanently comes last, set apart from Restore and the create links. */
-.gds-content-translation__delete {
-  padding-left: 0.5rem;
-  border-left: 1px solid #dcdcde;
+/* Delete permanently comes last, set apart from Restore and the create links
+   by a wider gap. A gap, not a separator: a border would be left dangling at
+   the start of the line whenever it wraps. */
+.gds-content-translation__missing-cell--trashed .gds-content-translation__translate-actions {
+  column-gap: 1rem;
 }
 
 /* A translation being created in another tab, until this screen reloads. */
@@ -453,6 +478,16 @@
   .gds-content-translation__proofread-input {
     width: 1.25rem;
     height: 1.25rem;
+  }
+
+  /* Core makes every .button 40px tall here; the link actions beside them
+     stay 24px. Keep the buttons at the same 24px so a cell's actions match. */
+  .wp-core-ui .gds-content-translation__translate.button {
+    min-height: 24px;
+    margin-bottom: 0;
+    padding: 0 0.5rem;
+    font-size: 12px;
+    line-height: 22px;
   }
 }
 

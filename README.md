@@ -38,7 +38,9 @@ For local path development (before the package is on Packagist):
 
 ### Translation status admin
 
-Polylang → **Content translation status**: one tab per translated post type, one row per post in the default language, one column per translation language. The title opens the original in the editor, with **View** and its open block notes beside it.
+Polylang → **Content translation status**: one tab per translated post type, one row per post in the default language, one column per translation language. The title opens the original in the editor, with **View**, its open block notes and **Trash all** beside it.
+
+**Trash all** moves the original and every translation of it to the trash in one go, after a confirmation that names the post and says how many translations go with it. Posts already in the trash are left as they are. If you may not delete every one of them, nothing is changed. The row then leaves the list, and the notice's **Undo** restores exactly the posts it trashed, each with the status it had before. Use it to clear out placeholder posts; nothing is deleted permanently.
 
 The summary counts missing and not-proof-read translations per language. Each count is a filter: select it to show only those rows, select it again (or **Clear**) to show all. The title search matches what you type; only when nothing does, it tolerates a missing letter within a word. The column headings stay in view while scrolling, and below 600px each post becomes a card.
 
@@ -63,7 +65,7 @@ A trashed translation is shown as **In trash** (grey, not the red of Missing) an
 - **AI translation** / **Copy original** — creates a new one; the trashed post is unlinked from the source and stays in the trash. If creating fails, it is linked again, so it can still be restored.
 - **Delete permanently** — deletes the trashed translation for good, after a confirmation naming the post and language. Only for a translation that is already in the trash; the cell then shows **Missing**.
 
-Trash, Restore and Delete permanently come back to the same row with the search kept, and say what happened in a notice that names the post and language. After Trash the notice has an **Undo** link.
+Trash, Restore and Delete permanently come back to the same row with the search kept, and say what happened in a notice that names the post and language. After Trash the notice has an **Undo** link. Keyboard focus comes back to the cell the action was taken in, and screen readers announce the notice; after Trash all, whose row is gone, focus goes to the notice and its Undo. Notices from actions in other tabs are kept until a status screen shows them, not replaced.
 
 Polylang keeps a trashed translation linked to its source, which is why it used to appear as translated.
 
@@ -261,15 +263,23 @@ npx @wordpress/env run tests-cli --env-cwd=wp-content/plugins/gds-content-transl
 npx @wordpress/env stop
 ```
 
-`tests/Unit` covers the rule-merging filters, `tests/Integration` covers block
-translation against configured `en` / `fi` languages. Tests that need Polylang
-skip themselves when it is not installed.
+`tests/Unit` covers the rule-merging filters, request parsing and notices,
+`tests/Integration` covers block translation and the status screen's Delete
+permanently and Trash all actions against configured `en` / `fi` languages.
+Tests that need Polylang skip themselves when it is not installed.
+
+`composer.json` sets `config.platform.php` to 8.3, the PHP version CI and
+wp-env run, so a `composer update` on a newer PHP cannot pick dev packages they
+cannot install. It does not change the plugin's own PHP requirement.
 
 ## Changelog
 
 ### 1.1.0
 
 - **Delete permanently** for a translation in the trash, on the status screen.
+- **Trash all** in the title cell: the original and all its translations to the trash in one go, with an Undo that restores each with its previous status.
+- After Trash, Restore, Delete permanently and Undo, focus returns to the cell the action was taken in and the notice is announced. Several notices are kept instead of the last one replacing the others.
+- Layout: Trash sits right after Proof read instead of at the column's far edge, language columns have more space on their right, Delete permanently no longer leaves a stray separator when it wraps, every cell is top-aligned, and Restore / Copy original stay 24px tall like the links beside them on narrow screens.
 - Status screen: one query per kind of data instead of three per translation (760 → 86 queries on a 678-row tab with 225 translations), and markup a third the size (6.4 MB → 2.0 MB).
 - Front end: the link fallback no longer looks up links that are already in the page's language, and caches the rest. A link to a default-language post on a translated page now resolves (Polylang limited the lookup to the page's language, so it never did).
 - Creating a translation: validated before anything is written, refused while the same one is being created, and an error from Polylang Pro or a filter is reported as a notice instead of a 500. A trashed translation is linked again when creating its replacement fails.
