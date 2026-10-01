@@ -511,7 +511,7 @@ class Admin
                                 <tr data-search-title="<?php echo esc_attr($row['title']); ?>">
                                     <td class="gds-content-translation__title">
                                         <div class="gds-content-translation__title-cell">
-                                            <a href="<?php echo esc_url(get_edit_post_link($row['sourceId'], 'raw')); ?>">
+                                            <a href="<?php echo esc_url(get_edit_post_link($row['sourceId'], 'raw')); ?>" target="_blank" rel="noopener noreferrer">
                                                 <?php echo esc_html($row['title']); ?>
                                             </a>
                                             <?php $this->renderNotesIndicator($row['sourceId'], $row['openNotes']); ?>
@@ -533,6 +533,8 @@ class Admin
                                                             <?php if ($machineTranslationAvailable) { ?>
                                                                 <a
                                                                     class="button button-small gds-content-translation__translate"
+                                                                    target="_blank"
+                                                                    rel="noopener noreferrer"
                                                                     href="<?php echo esc_url($machineTranslation->getActionUrl($row['sourceId'], $langSlug, $selectedPostType, MachineTranslation::modeAi)); ?>"
                                                                 >
                                                                     <span class="dashicons dashicons-translation gds-content-translation__translate-icon" aria-hidden="true"></span>
@@ -542,6 +544,8 @@ class Admin
                                                             <?php if ($copyTranslationAvailable) { ?>
                                                                 <a
                                                                     class="button button-small gds-content-translation__translate"
+                                                                    target="_blank"
+                                                                    rel="noopener noreferrer"
                                                                     href="<?php echo esc_url($machineTranslation->getActionUrl($row['sourceId'], $langSlug, $selectedPostType, MachineTranslation::modeCopy)); ?>"
                                                                     title="<?php echo esc_attr(
                                                                         $sourceLanguageName !== ''
@@ -579,7 +583,7 @@ class Admin
                                                 <div class="gds-content-translation__cell">
                                                     <span class="gds-content-translation__badge gds-content-translation__badge--exists" aria-hidden="true">✓</span>
                                                     <span class="gds-content-translation__actions">
-                                                        <a class="gds-content-translation__edit" href="<?php echo esc_url(get_edit_post_link($cell['postId'], 'raw')); ?>">
+                                                        <a class="gds-content-translation__edit" href="<?php echo esc_url(get_edit_post_link($cell['postId'], 'raw')); ?>" target="_blank" rel="noopener noreferrer">
                                                             <?php echo esc_html__('Edit', 'gds-content-translation'); ?>
                                                         </a>
                                                         <?php $viewUrl = self::getViewUrl($cell['postId']); ?>
