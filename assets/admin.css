@@ -446,6 +446,27 @@
   text-decoration: underline;
 }
 
+/* Trash all lives in its own column at the far end of the row, where a
+   translator's pointer does not otherwise go: muted until hovered or
+   focused, red only then. */
+.gds-content-translation__table .gds-content-translation__row-actions-heading,
+.gds-content-translation__table .gds-content-translation__row-actions {
+  /* The table is fixed-layout, so the column needs a real width. */
+  width: 6rem;
+  padding-right: 16px;
+  white-space: nowrap;
+  text-align: right;
+}
+
+.gds-content-translation__row-actions .gds-content-translation__trash-row {
+  color: #646970;
+}
+
+.gds-content-translation__row-actions .gds-content-translation__trash-row:hover,
+.gds-content-translation__row-actions .gds-content-translation__trash-row:focus {
+  color: #b32d2e;
+}
+
 /* Delete permanently comes last, set apart from Restore and the create links
    by a wider gap. A gap, not a separator: a border would be left dangling at
    the start of the line whenever it wraps. */
@@ -513,6 +534,12 @@
 
   .gds-content-translation__table tbody tr[hidden] {
     display: none;
+  }
+
+  .gds-content-translation__table .gds-content-translation__row-actions {
+    width: auto;
+    padding-right: 10px;
+    text-align: right;
   }
 
   .gds-content-translation__table tbody td[data-lang-name]::before {

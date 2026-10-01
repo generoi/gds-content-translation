@@ -274,10 +274,14 @@ cannot install. It does not change the plugin's own PHP requirement.
 
 ## Changelog
 
+### 1.1.1
+
+- **Trash all** moves to its own column at the far right of each row, in a muted colour that turns red on hover or focus, away from View and the per-language actions.
+
 ### 1.1.0
 
 - **Delete permanently** for a translation in the trash, on the status screen.
-- **Trash all** in the title cell: the original and all its translations to the trash in one go, with an Undo that restores each with its previous status.
+- **Trash all** at the far right of the row: the original and all its translations to the trash in one go, with an Undo that restores each with its previous status.
 - After Trash, Restore, Delete permanently and Undo, focus returns to the cell the action was taken in and the notice is announced. Several notices are kept instead of the last one replacing the others.
 - Layout: Trash sits right after Proof read instead of at the column's far edge, language columns have more space on their right, Delete permanently no longer leaves a stray separator when it wraps, every cell is top-aligned, and Restore / Copy original stay 24px tall like the links beside them on narrow screens.
 - Status screen: one query per kind of data instead of three per translation (760 → 86 queries on a 678-row tab with 225 translations), and markup a third the size (6.4 MB → 2.0 MB).

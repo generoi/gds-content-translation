@@ -712,6 +712,9 @@ class Admin
                                 <?php foreach ($translationLanguages as $language) { ?>
                                     <th scope="col" data-lang="<?php echo esc_attr($language['slug']); ?>"><?php echo esc_html($language['name']); ?></th>
                                 <?php } ?>
+                                <th scope="col" class="gds-content-translation__row-actions-heading">
+                                    <span class="screen-reader-text"><?php echo esc_html__('Row actions', 'gds-content-translation'); ?></span>
+                                </th>
                             </tr>
                         </thead>
                         <tbody>
@@ -731,7 +734,7 @@ class Admin
                     }
                     ?>
                             <tr class="gds-content-translation__search-empty" hidden>
-                                <td colspan="<?php echo esc_attr((string) (count($translationLanguages) + 1)); ?>">
+                                <td colspan="<?php echo esc_attr((string) (count($translationLanguages) + 2)); ?>">
                                     <?php echo esc_html__('No titles match your search.', 'gds-content-translation'); ?>
                                 </td>
                             </tr>
@@ -894,13 +897,16 @@ class Admin
         }
 
         return sprintf(
-            '<tr id="%1$s" data-search-title="%2$s" data-missing="%3$s" data-unproofread="%4$s">%5$s%6$s</tr>'."\n",
+            '<tr id="%1$s" data-search-title="%2$s" data-missing="%3$s" data-unproofread="%4$s">%5$s%6$s<td class="gds-content-translation__row-actions">%7$s</td></tr>'."\n",
             esc_attr(self::rowAnchor($row['sourceId'])),
             esc_attr($row['title']),
             esc_attr(implode(' ', $missing)),
             esc_attr(implode(' ', $unproofread)),
             $this->renderTitleCell($row, $context),
-            $cells
+            $cells,
+            // Trash all at the far end of the row, away from View and the
+            // per-language actions a translator uses all day.
+            $this->renderRowTrash($row, $context)
         );
     }
 
@@ -940,7 +946,6 @@ class Admin
         }
 
         $meta .= $this->renderNotesIndicator((string) $editUrl, $row['openNotes']);
-        $meta .= $this->renderRowTrash($row, $context);
 
         return sprintf(
             '<th scope="row" class="gds-content-translation__title"><div class="gds-content-translation__title-cell">%1$s%2$s</div></th>',
