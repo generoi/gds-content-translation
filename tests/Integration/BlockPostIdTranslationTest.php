@@ -118,4 +118,33 @@ class BlockPostIdTranslationTest extends PolylangTestCase
 
         $this->assertSame($this->target['fi'], $blocks[0]['attrs']['postId']);
     }
+
+    /**
+     * wp_update_post() unslashes its input: without wp_slash() every JSON
+     * escape in the block comment and every backslash in the HTML was lost.
+     */
+    public function test_normalizing_keeps_escapes_and_backslashes(): void
+    {
+        // As on the status screen: an administrator, so kses leaves the
+        // block attributes alone and only the slashing is under test.
+        wp_set_current_user(self::factory()->user->create(['role' => 'administrator']));
+
+        $translation = $this->target['fi'];
+        $content = sprintf(
+            '<!-- wp:gds/post-teaser {"postId":%d,"metadata":{"name":"Quote \\u0022x\\u0022 \\u003cy\\u003e \\u002d\\u002d"}} /-->',
+            $this->target['en']
+        )."\n".'<!-- wp:paragraph --><p>C:\\path\\to</p><!-- /wp:paragraph -->';
+
+        global $wpdb;
+        $wpdb->update($wpdb->posts, ['post_content' => $content], ['ID' => $translation]);
+        clean_post_cache($translation);
+
+        $this->assertTrue(BlockPostIdTranslation::normalizePostContent($translation));
+
+        $saved = get_post_field('post_content', $translation);
+
+        $this->assertStringContainsString(sprintf('"postId":%d', $translation), $saved);
+        $this->assertStringContainsString('Quote \\u0022x\\u0022 \\u003cy\\u003e \\u002d\\u002d', $saved);
+        $this->assertStringContainsString('<p>C:\\path\\to</p>', $saved);
+    }
 }

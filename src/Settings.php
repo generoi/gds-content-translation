@@ -28,6 +28,19 @@ class Settings
     {
         add_action('admin_menu', [$this, 'registerMenu'], 21);
         add_action('admin_init', [$this, 'handleSave']);
+        add_action('admin_init', [self::class, 'ensureOption']);
+    }
+
+    /**
+     * Store the default once, autoloaded. While the option does not exist,
+     * every get_option() for it is its own query, and the admin bar asks for
+     * it on every page an administrator sees, front end included.
+     */
+    public static function ensureOption(): void
+    {
+        if (get_option(self::optionKey, null) === null) {
+            add_option(self::optionKey, self::defaultHiddenPostTypes, '', 'yes');
+        }
     }
 
     public function registerMenu(): void
