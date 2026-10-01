@@ -45,6 +45,8 @@ Polylang → **Content translation status**: overview of missing translations, p
 
 Both run through Polylang Pro's translation pipeline, so blocks, internal links, post IDs, terms and metas are remapped to the target language either way, and both create the translation as a **draft** and open it in the editor.
 
+Edit links, View, AI translation and Copy original all open in a new tab, so the status screen stays where it was.
+
 Each existing translation also has:
 
 - **View** — opens the post on the site in a new tab (its preview while it is unpublished). Not shown for post types without a front end, such as template parts.
