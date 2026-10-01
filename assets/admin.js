@@ -1,4 +1,7 @@
 (function () {
+  // Survives the reload after a translation is created in another tab.
+  var SEARCH_KEY = 'gdsContentTranslationSearch';
+
   function normalizeSearchText(value) {
     return String(value || '')
       .toLowerCase()
@@ -77,6 +80,22 @@
     if (!input || !table) {
       return;
     }
+
+    window.setTimeout(function () {
+      var saved = '';
+
+      try {
+        saved = window.sessionStorage.getItem(SEARCH_KEY) || '';
+        window.sessionStorage.removeItem(SEARCH_KEY);
+      } catch (error) {
+        saved = '';
+      }
+
+      if (saved) {
+        input.value = saved;
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+    });
 
     var rows = Array.prototype.slice.call(
       table.querySelectorAll('tbody tr[data-search-title]')
@@ -370,5 +389,59 @@
     if (link && !window.confirm(link.getAttribute('data-confirm'))) {
       event.preventDefault();
     }
+  });
+
+  // AI translation and Copy original open the new translation in another
+  // tab. Mark the cell as in progress at once, and reload this screen when
+  // the editor comes back to it, so the new translation shows without a
+  // manual refresh. Only after the tab was actually left: a link opened in a
+  // background tab leaves the marker until the next visit.
+  var refreshPending = false;
+  var leftAfterClick = false;
+
+  document.addEventListener('click', function (event) {
+    var link = event.target.closest('a.gds-content-translation__translate[target="_blank"]');
+
+    if (!link) {
+      return;
+    }
+
+    refreshPending = true;
+
+    var cell = link.closest('.gds-content-translation__missing-cell');
+    var badge = cell && cell.querySelector('.gds-content-translation__badge');
+    var strings = window.contentTranslationStatus || {};
+
+    if (badge) {
+      badge.textContent = strings.creating || 'Creating…';
+      badge.classList.add('is-creating');
+    }
+  });
+
+  document.addEventListener('visibilitychange', function () {
+    if (!refreshPending) {
+      return;
+    }
+
+    if (document.visibilityState === 'hidden') {
+      leftAfterClick = true;
+      return;
+    }
+
+    if (!leftAfterClick) {
+      return;
+    }
+
+    var input = document.querySelector('.gds-content-translation__search-input');
+
+    try {
+      if (input && input.value) {
+        window.sessionStorage.setItem(SEARCH_KEY, input.value);
+      }
+    } catch (error) {
+      // Private mode: reload without the search.
+    }
+
+    window.location.reload();
   });
 })();
