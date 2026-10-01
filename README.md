@@ -45,6 +45,13 @@ Polylang → **Content translation status**: overview of missing translations, p
 
 Both run through Polylang Pro's translation pipeline, so blocks, internal links, post IDs, terms and metas are remapped to the target language either way, and both create the translation as a **draft** and open it in the editor.
 
+Each existing translation also has:
+
+- **View** — opens the post on the site in a new tab (its preview while it is unpublished). Not shown for post types without a front end, such as template parts.
+- **Trash** — moves that translation to the trash after a confirmation. Only translations: the source-language post is never trashed from here.
+
+A trashed translation is shown as **In trash** and counted as missing, with a **Restore** button that brings it back with the status it had before (not as a draft). Polylang keeps a trashed translation linked to its source, which is why it used to appear as translated.
+
 Polylang → **Content translation settings**: choose which post types appear as tabs on the status screen. Unchecked types are hidden from the dashboard UI.
 
 Programmatic exclusions still work via filter (always applied on top of saved settings):

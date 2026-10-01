@@ -291,3 +291,18 @@
     display: none;
   }
 }
+
+/* Trash a translation: WordPress's own destructive link colour. */
+.gds-content-translation__trash {
+  flex-shrink: 0;
+  color: #b32d2e;
+  font-size: 13px;
+  line-height: 1.75rem;
+  text-decoration: none;
+}
+
+.gds-content-translation__trash:hover,
+.gds-content-translation__trash:focus {
+  color: #b32d2e;
+  text-decoration: underline;
+}
