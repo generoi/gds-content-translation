@@ -46,192 +46,74 @@
   font-size: 12px;
 }
 
-/* AI review page: original, machine translation and remark side by side. */
-.gds-content-translation-review__table {
-  table-layout: fixed;
-}
-
-.gds-content-translation-review__table td {
-  vertical-align: top;
-  overflow-wrap: anywhere;
-}
-
-.gds-content-translation-review__number {
-  width: 2.5rem;
-}
-
-.gds-content-translation-review__row--remarks td {
-  background: #fffdf3;
-}
-
-.gds-content-translation-review__remark {
-  margin-bottom: 0.75rem;
-  padding-left: 0.5rem;
-  border-left: 3px solid #dba617;
-}
-
-.gds-content-translation-review__remark:last-child {
-  margin-bottom: 0;
-}
-
-.gds-content-translation-review__remark p {
-  margin: 0 0 0.35rem;
-}
-
-.gds-content-translation-review__remark--error {
-  border-left-color: #d63638;
-}
-
-.gds-content-translation-review__remark--suggestion {
-  border-left-color: #72aee6;
-}
-
-.gds-content-translation-review__severity {
-  font-weight: 600;
-}
-
-.gds-content-translation-review__category {
-  color: #50575e;
-}
-
-.gds-content-translation-review__ok {
-  color: #50575e;
-}
-
-.gds-content-translation-review__remark--resolved,
-.gds-content-translation-review__remark--dismissed {
-  border-left-color: #c3c4c7;
-  color: #50575e;
-}
-
-.gds-content-translation-review__state,
-.gds-content-translation-review__changed {
-  display: inline-block;
-  padding: 0 0.35rem;
-  border-radius: 3px;
-  background: #f0f0f1;
-  color: #50575e;
-  font-size: 11px;
-  font-weight: 600;
-}
-
-.gds-content-translation-review__changed {
-  margin: 0.5rem 0 0;
-  background: #f0f6fc;
-}
-
-.gds-content-translation-review__actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.25rem;
-}
-
-.gds-content-translation-review__rerun {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem;
-  margin: 1rem 0;
-}
-
-.gds-content-translation-review__closed {
-  color: #50575e;
-  font-weight: 400;
-}
-
-@media (max-width: 782px) {
-  .gds-content-translation-review__table,
-  .gds-content-translation-review__table tbody,
-  .gds-content-translation-review__table tr,
-  .gds-content-translation-review__table td {
-    display: block;
-    width: auto;
-  }
-
-  .gds-content-translation-review__table thead {
-    display: none;
-  }
-}
-
-.gds-content-translation-review__suggestion ins {
-  background: #d1f0d6;
-  color: #00450c;
-  text-decoration: none;
-}
-
-.gds-content-translation-review__suggestion del {
-  background: #fbe0e1;
-  color: #8a2424;
-}
-
-.gds-content-translation-review__edit {
-  margin-top: 0.35rem;
-}
-
-.gds-content-translation-review__edit summary {
-  color: #2271b1;
-  cursor: pointer;
-}
-
-.gds-content-translation-review__actions.is-stacked {
-  flex-direction: column;
-  align-items: flex-start;
-  margin-top: 0.35rem;
-}
-
+/* AI review page: the proofread line, the folded details and links, and
+ * the remarks table (build/style-index.css). */
 .gds-content-translation-review__running .spinner {
   float: none;
   margin: 0 0.35rem 0 0;
   vertical-align: middle;
 }
 
-.gds-content-translation-review__caution {
-  margin-left: 0.75rem;
-  color: #8a2424;
+.gds-content-translation-review__bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 16px;
+  margin: 12px 0;
 }
 
-.gds-content-translation-review__help {
+.gds-content-translation-review__bar .gds-content-translation__proofread {
+  font-size: 13px;
+}
+
+.gds-content-translation-review__hint {
+  color: #646970;
+  font-size: 12px;
+}
+
+.gds-content-translation-review__more {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 4px 24px;
+  margin: 0 0 12px;
+}
+
+.gds-content-translation-review__more details {
+  font-size: 13px;
+}
+
+.gds-content-translation-review__more details[open] {
+  flex-basis: 100%;
+}
+
+.gds-content-translation-review__more summary {
+  color: #2271b1;
+  cursor: pointer;
+}
+
+.gds-content-translation-review__details {
   max-width: 60rem;
+  margin: 6px 0 4px 14px;
 }
 
-.gds-content-translation-review__field {
-  display: block;
-  margin-top: 0.25rem;
-  color: #50575e;
-  font-size: 11px;
-  overflow-wrap: anywhere;
-}
-
-.gds-content-translation-review__number {
-  width: 5rem;
-}
-
-.gds-content-translation-review__links-heading {
-  margin: 0.75em 0 0.25em;
-  font-size: 14px;
+.gds-content-translation-review__details p {
+  margin: 0 0 8px;
 }
 
 .gds-content-translation-review__links-list {
-  margin: 0.5em 0 0.75em;
+  margin: 0;
 }
 
 .gds-content-translation-review__links-list li {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 12px;
-  max-width: 32rem;
+  max-width: 48rem;
   margin: 0;
   padding: 4px 0;
-  border-top: 1px solid #f0e6c8;
-}
-
-.gds-content-translation-review__links-list li span {
-  flex: 1;
-}
-
-.gds-content-translation-review__links-list li {
-  flex-wrap: wrap;
-  max-width: 48rem;
+  border-top: 1px solid #f0f0f1;
 }
 
 .gds-content-translation-review__link-title {
@@ -240,6 +122,7 @@
 
 .gds-content-translation-review__link-status {
   display: inline-flex;
+  flex: 1;
   align-items: center;
   gap: 4px;
   min-height: 24px;
@@ -256,4 +139,10 @@
 
 [data-state='failed'] .gds-content-translation-review__link-status {
   color: #b32d2e;
+}
+
+/* Keeps its place until the table is there. */
+.gds-content-translation-review__remarks {
+  position: relative;
+  min-height: 320px;
 }

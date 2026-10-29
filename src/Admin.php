@@ -357,12 +357,15 @@ class Admin
             return;
         }
 
-        // The status list is the DataViews app; the AI review page and the
-        // settings stay server-rendered, with the small script they need.
-        if ($hookSuffix === 'languages_page_'.self::pageSlug && AuditReview::requestedPostId() <= 0) {
+        // The status list is the DataViews app. The AI review page is
+        // server-rendered around its table of remarks, which is the app's too;
+        // the settings are server-rendered.
+        if ($hookSuffix === 'languages_page_'.self::pageSlug) {
             $this->enqueueApp();
 
-            return;
+            if (AuditReview::requestedPostId() <= 0) {
+                return;
+            }
         }
 
         wp_enqueue_style('dashicons');

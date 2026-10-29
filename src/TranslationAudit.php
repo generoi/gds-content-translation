@@ -579,6 +579,19 @@ final class TranslationAudit
         }
 
         $segment = $review['segments'][$segmentIndex];
+
+        // A review stored before texts kept their place: find it the way the
+        // review page pairs the texts now, if it still says the same.
+        if (empty($segment['acf']) && ! array_key_exists('index', $segment)) {
+            $source = get_post((int) ($review['sourceId'] ?? 0));
+            $current = $source ? (array_column(self::currentSegments($source, $post)['segments'], null, 'id')[$segment['id']] ?? null) : null;
+
+            if ($current && $current['translation'] === $segment['translation']) {
+                $segment['block'] = $current['block'] ?? null;
+                $segment['index'] = $current['index'] ?? -1;
+            }
+        }
+
         $changed = new WP_Error('gds_ct_audit_changed', __('This text has changed in the translation since the review. Make the change in the editor.', 'gds-content-translation'));
 
         if (! empty($segment['acf'])) {

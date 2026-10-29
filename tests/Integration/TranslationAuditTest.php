@@ -10,6 +10,9 @@ use GeneroWP\ContentTranslation\TextDiff;
 use GeneroWP\ContentTranslation\TranslationAudit;
 use PLL_Translation_Walker_Factory;
 use WP_Error;
+use WP_REST_Request;
+use WP_REST_Response;
+use WP_REST_Server;
 use WPDieException;
 
 /**
@@ -333,13 +336,12 @@ class TranslationAuditTest extends AdminActionTestCase
     {
         $ids = $this->reviewedTranslation();
 
-        $this->submit('gds_ct_audit_remark', ['post' => (string) $ids['fi'], 'remark' => '2', 'operation' => 'use']);
-        $location = $this->submit('gds_ct_audit_remark', ['post' => (string) $ids['fi'], 'remark' => '1', 'operation' => 'edit', 'text' => 'Hei <strong>koko</strong> maailma', 'view' => 'remarks']);
+        $this->remarks($ids['fi'], 'use', [2]);
+        $response = $this->remarks($ids['fi'], 'edit', [1], 'Hei <strong>koko</strong> maailma');
 
-        // Back at the remarks, with what was done said above them.
-        $this->assertStringContainsString('view=remarks', $location);
-        $this->assertStringContainsString('done=edit', $location);
-        $this->assertStringEndsWith('#gds-ct-remarks', $location);
+        // A result per remark, and the table as it is now.
+        $this->assertSame([['id' => 1, 'ok' => true, 'message' => '']], $response->get_data()['results']);
+        $this->assertSame(['error' => 0, 'warning' => 0, 'suggestion' => 0], $response->get_data()['counts']);
         $this->assertSame(['Hei <strong>koko</strong> maailma', 'Lue lisää', 'Lue lisää'], TranslationAudit::strings(get_post($ids['fi'])->post_content));
 
         $review = TranslationAudit::get($ids['fi']);
@@ -348,6 +350,17 @@ class TranslationAuditTest extends AdminActionTestCase
         $this->assertSame(md5(get_post($ids['fi'])->post_content), $review['contentHash']);
         $this->assertSame('1', get_comment($review['remarks'][0]['noteId'])->comment_approved);
         $this->assertSame('done:0:0:'.$review['contentHash'], get_post_meta($ids['fi'], TranslationAudit::statusMetaKey, true));
+    }
+
+    public function test_a_review_stored_without_text_places_can_still_be_applied(): void
+    {
+        $ids = $this->reviewedTranslation();
+        $review = TranslationAudit::get($ids['fi']);
+        $review['segments'] = array_map(static fn (array $segment): array => array_diff_key($segment, ['block' => 0, 'index' => 0]), $review['segments']);
+        TranslationAudit::store($ids['fi'], $review);
+
+        $this->assertTrue(TranslationAudit::applyText($ids['fi'], 2, 'Lue lisää', 'suggestion'));
+        $this->assertContains('Lue lisää', TranslationAudit::strings(get_post($ids['fi'])->post_content));
     }
 
     public function test_a_text_changed_in_the_editor_is_not_overwritten(): void
@@ -363,13 +376,18 @@ class TranslationAuditTest extends AdminActionTestCase
         $this->assertSame('gds_ct_audit_changed', $result->get_error_code());
         $this->assertStringContainsString('Lue lisää nyt', get_post($ids['fi'])->post_content);
 
-        // The review page offers to mark it fixed instead.
+        // The review page says so, and its table flags the text.
         ob_start();
         AuditReview::renderPage($ids['fi']);
         $html = (string) ob_get_clean();
         $this->assertStringContainsString('was edited after this review', $html);
-        $this->assertStringContainsString('Changed since the review', $html);
-        $this->assertStringContainsString('value="fixed"', $html);
+        $rows = array_column(AuditReview::remarkRows($ids['fi'])['rows'], null, 'id');
+        $this->assertTrue($rows['r2']['changed']);
+        $this->assertFalse($rows['r1']['changed']);
+
+        // Several at once: each on its own.
+        $results = $this->remarks($ids['fi'], 'use', [1, 2])->get_data()['results'];
+        $this->assertSame([true, false], array_column($results, 'ok'));
     }
 
     public function test_a_review_is_run_from_the_status_screen_link(): void
@@ -435,11 +453,7 @@ class TranslationAuditTest extends AdminActionTestCase
         ]]);
         wp_set_current_user(self::factory()->user->create(['role' => 'subscriber']));
 
-        try {
-            $this->submit('gds_ct_audit_remark', ['post' => (string) $ids['fi'], 'remark' => '1', 'operation' => 'dismiss']);
-        } catch (WPDieException $e) {
-            $this->addToAssertionCount(1);
-        }
+        $this->assertSame(403, $this->remarks($ids['fi'], 'dismiss', [1])->get_status());
 
         $this->assertSame('open', TranslationAudit::get($ids['fi'])['remarks'][0]['state']);
     }
@@ -458,21 +472,19 @@ class TranslationAuditTest extends AdminActionTestCase
     }
 
     /**
-     * Post a review page form to its admin-post handler.
+     * POST /reviews/{id}/remarks as the current user.
      *
-     * @param  array<string, string>  $fields
+     * @param  list<int>  $remarks
      */
-    private function submit(string $action, array $fields): string
+    private function remarks(int $postId, string $operation, array $remarks, string $text = ''): WP_REST_Response
     {
-        $_POST = array_merge(['action' => $action, '_wpnonce' => wp_create_nonce($action.'_'.$fields['post'])], $fields);
-        $_REQUEST = $_POST;
+        global $wp_rest_server;
+        $wp_rest_server = new WP_REST_Server;
+        do_action('rest_api_init', $wp_rest_server);
 
-        try {
-            do_action('admin_post_'.$action);
-        } catch (RedirectException $redirect) {
-            return $redirect->location;
-        }
+        $request = new WP_REST_Request('POST', '/gds-content-translation/v1/reviews/'.$postId.'/remarks');
+        $request->set_body_params(['operation' => $operation, 'remarks' => $remarks, 'text' => $text]);
 
-        $this->fail('The handler did not redirect.');
+        return rest_get_server()->dispatch($request);
     }
 }

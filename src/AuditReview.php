@@ -26,29 +26,19 @@ final class AuditReview
 
     private const reviewAction = 'gds_ct_run_review';
 
-    private const remarkAction = 'gds_ct_audit_remark';
-
     private const statusAction = 'gds_ct_audit_status';
-
-    /** Review page views: open remarks, every remark, every text. */
-    private const views = ['open', 'remarks', 'all'];
 
     public static function init(): void
     {
         $review = new self;
         add_action('admin_post_'.self::reviewAction, [$review, 'handleReview']);
-        add_action('admin_post_'.self::remarkAction, [$review, 'handleRemark']);
         add_action('wp_ajax_'.self::statusAction, [$review, 'handleStatus']);
     }
 
-    public static function getUrl(int $postId, string $view = ''): string
+    public static function getUrl(int $postId): string
     {
         return add_query_arg(
-            array_filter([
-                'page' => Admin::getPageSlug(),
-                self::param => $postId,
-                'view' => in_array($view, self::views, true) && $view !== 'open' ? $view : null,
-            ]),
+            ['page' => Admin::getPageSlug(), self::param => $postId],
             admin_url('admin.php')
         );
     }
@@ -97,43 +87,103 @@ final class AuditReview
     }
 
     /**
-     * Use a suggestion, save an edit, mark a remark fixed or not an issue, or reopen it.
+     * Use a suggestion, save an edit, mark a remark fixed or not an issue, or
+     * reopen it. The caller checks that the user may edit the post.
      */
-    public function handleRemark(): void
+    public static function changeRemark(int $postId, int $remarkId, string $operation, string $text = ''): true|\WP_Error
     {
-        $postId = Request::id($_POST, 'post');
-        $remarkId = Request::id($_POST, 'remark');
-        $operation = Request::key($_POST, 'operation');
-        $view = Request::key($_POST, 'view');
-
-        check_admin_referer(self::remarkAction.'_'.$postId);
-
-        if ($postId <= 0 || ! current_user_can('edit_post', $postId)) {
-            wp_die(esc_html__('You are not allowed to review this translation.', 'gds-content-translation'), 403);
-        }
-
         $review = TranslationAudit::get($postId);
         $remark = $review ? (array_column($review['remarks'], null, 'id')[$remarkId] ?? null) : null;
-        $text = isset($_POST['text']) && is_string($_POST['text']) ? wp_kses_post(wp_unslash($_POST['text'])) : '';
+
+        if (! $remark) {
+            return new \WP_Error('gds_ct_audit_missing', __('This remark no longer exists. Reload the page.', 'gds-content-translation'));
+        }
 
         $result = match ($operation) {
-            'use' => $remark ? TranslationAudit::applyText($postId, $remarkId, (string) $remark['suggestion'], 'suggestion') : false,
-            'edit' => TranslationAudit::applyText($postId, $remarkId, $text, 'edited'),
+            'use' => TranslationAudit::applyText($postId, $remarkId, (string) $remark['suggestion'], 'suggestion'),
+            'edit' => TranslationAudit::applyText($postId, $remarkId, wp_kses_post($text), 'edited'),
             'fixed' => TranslationAudit::setRemarkState($postId, $remarkId, 'resolved', true, 'manual'),
             'dismiss' => TranslationAudit::setRemarkState($postId, $remarkId, 'dismissed', true, 'not-an-issue'),
             'reopen' => TranslationAudit::setRemarkState($postId, $remarkId, 'open'),
             default => false,
         };
 
-        // Back at the remarks, with what happened said right above them.
-        $done = match (true) {
-            $result instanceof \WP_Error => 'error:'.$result->get_error_code(),
-            $result === false => 'error:missing',
-            default => $operation,
-        };
+        if ($result === false) {
+            return new \WP_Error('gds_ct_audit_missing', __('That did not work. Reload the page and try again.', 'gds-content-translation'));
+        }
 
-        wp_safe_redirect(add_query_arg('done', $done, self::getUrl($postId, $view)).'#gds-ct-remarks');
-        exit;
+        return $result;
+    }
+
+    /**
+     * The review page's table: a row per remark, and one per text without
+     * remarks, with what the text says now to flag the ones changed since.
+     *
+     * @return array{rows: list<array<string, mixed>>, counts: array{error: int, warning: int, suggestion: int}, sourceLanguage: string, targetLanguage: string}
+     */
+    public static function remarkRows(int $postId): array
+    {
+        $review = TranslationAudit::get($postId) ?? ['remarks' => [], 'segments' => []];
+        $post = get_post($postId);
+        $source = get_post((int) ($review['sourceId'] ?? 0));
+        $current = $source && $post ? TranslationAudit::currentSegments($source, $post)['segments'] : [];
+        $currentById = array_column($current, 'translation', 'id');
+        $remarksBySegment = [];
+
+        foreach ((array) $review['remarks'] as $remark) {
+            $remarksBySegment[$remark['segment']][] = $remark;
+        }
+
+        $rows = [];
+
+        foreach ((array) $review['segments'] as $segment) {
+            $base = [
+                'segment' => (int) $segment['id'],
+                // An ACF field says which one.
+                'label' => (string) ($segment['label'] ?? ''),
+                'source' => wp_kses_post($segment['source']),
+                'translation' => wp_kses_post($segment['translation']),
+                'changed' => isset($currentById[$segment['id']]) && $currentById[$segment['id']] !== $segment['translation'],
+            ];
+
+            foreach ($remarksBySegment[$segment['id']] ?? [] as $remark) {
+                $suggestion = (string) $remark['suggestion'];
+                $rows[] = $base + [
+                    'id' => 'r'.(int) $remark['id'],
+                    'remarkId' => (int) $remark['id'],
+                    'severity' => (string) $remark['severity'],
+                    'category' => (string) $remark['category'],
+                    'categoryLabel' => self::categoryLabel((string) $remark['category']),
+                    'issue' => (string) $remark['issue'],
+                    'suggestion' => $suggestion,
+                    'suggestionDiff' => $suggestion !== '' ? TextDiff::render((string) $segment['translation'], $suggestion) : '',
+                    'state' => (string) ($remark['state'] ?? 'open'),
+                    'stateLabel' => ($remark['state'] ?? 'open') !== 'open' ? self::stateLabel($remark) : '',
+                ];
+            }
+
+            if (! isset($remarksBySegment[$segment['id']])) {
+                $rows[] = $base + [
+                    'id' => 's'.(int) $segment['id'],
+                    'remarkId' => 0,
+                    'severity' => '',
+                    'category' => '',
+                    'categoryLabel' => '',
+                    'issue' => '',
+                    'suggestion' => '',
+                    'suggestionDiff' => '',
+                    'state' => 'none',
+                    'stateLabel' => '',
+                ];
+            }
+        }
+
+        return [
+            'rows' => $rows,
+            'counts' => self::openCounts($review),
+            'sourceLanguage' => self::languageName((string) ($review['sourceLanguage'] ?? '')),
+            'targetLanguage' => self::languageName((string) ($review['targetLanguage'] ?? '')),
+        ];
     }
 
     /**
@@ -172,8 +222,6 @@ final class AuditReview
         $language = PLL()->model->post->get_language($postId);
         $languageName = $language ? StatusList::languageName($language) : '';
         $editUrl = (string) get_edit_post_link($postId, 'raw');
-        $view = Request::key($_GET, 'view');
-        $view = in_array($view, self::views, true) ? $view : 'open';
         $openCounts = self::openCounts($review);
         $openTotal = array_sum($openCounts);
 
@@ -190,7 +238,7 @@ final class AuditReview
         ?>
             </h1>
             <?php if ($editUrl !== '' && $status['status'] !== 'pending') { ?>
-                <a href="<?php echo esc_url($editUrl); ?>" class="page-title-action">
+                <a href="<?php echo esc_url($editUrl); ?>" class="page-title-action" data-gds-ct-editor-link>
                     <?php
                     echo esc_html($openTotal > 0
                         ? sprintf(
@@ -211,7 +259,7 @@ final class AuditReview
             } elseif ($status['status'] === 'stuck' || $status['status'] === 'failed') {
                 self::renderFailed($postId, $review, $status, $editUrl);
             } else {
-                self::renderDone($postId, $post, $review, $status, $view, $openCounts);
+                self::renderDone($postId, $post, $review, $status, $openCounts);
             }
         ?>
         </div>
@@ -284,60 +332,29 @@ final class AuditReview
     }
 
     /**
+     * The remarks first: one line to mark the translation proofread, the
+     * table of remarks (the script's, {@see resources/review}), and what is
+     * only sometimes needed folded away: the review's summary and details,
+     * and the links that still lead to the original's pages.
+     *
      * @param  array<string, mixed>  $review
      * @param  array{status: string, errors: int, other: int, contentHash: string, queuedAt: int}  $status
      * @param  array{error: int, warning: int, suggestion: int}  $openCounts
      */
-    private static function renderDone(int $postId, \WP_Post $post, array $review, array $status, string $view, array $openCounts): void
+    private static function renderDone(int $postId, \WP_Post $post, array $review, array $status, array $openCounts): void
     {
         $openTotal = array_sum($openCounts);
         $edited = $status['contentHash'] !== '' && TranslationAudit::contentHash($postId) !== $status['contentHash'];
         $proofread = (bool) get_post_meta($postId, GDS_CONTENT_TRANSLATION_META_KEY, true);
 
         ?>
-        <table class="form-table gds-content-translation-review__meta" role="presentation">
-            <tbody>
-                <?php if ($review['summary'] !== '') { ?>
-                    <tr>
-                        <th scope="row"><?php echo esc_html__('Summary', 'gds-content-translation'); ?></th>
-                        <td><?php echo esc_html($review['summary']); ?></td>
-                    </tr>
-                <?php } ?>
-                <tr>
-                    <th scope="row"><?php echo esc_html__('Reviewed', 'gds-content-translation'); ?></th>
-                    <td>
-                        <?php
-                        echo esc_html(sprintf(
-                            /* translators: 1: date and time, 2: model name */
-                            __('%1$s by %2$s. Reviews the content and the ACF text fields, not the title or excerpt.', 'gds-content-translation'),
-                            wp_date(get_option('date_format').' '.get_option('time_format'), (int) ($review['createdAt'] ?? 0)),
-                            TranslationAudit::models()[$review['model'] ?? ''] ?? ($review['model'] ?? '')
-                        ));
-        ?>
-                    </td>
-                </tr>
-                <tr>
-                    <th scope="row"><?php echo esc_html__('Proofreading', 'gds-content-translation'); ?></th>
-                    <td>
-                        <label class="gds-content-translation__proofread">
-                            <input type="checkbox" class="gds-content-translation__proofread-input" data-post-id="<?php echo esc_attr((string) $postId); ?>" <?php checked($proofread); ?>>
-                            <span class="gds-content-translation__proofread-label"><?php echo esc_html__('Mark as proofread', 'gds-content-translation'); ?></span>
-                        </label>
-                        <p class="description">
-                            <?php
-                            echo esc_html($openCounts['error'] > 0
-                                ? sprintf(
-                                    /* translators: %d: number of open errors */
-                                    _n('Fix the AI error below first, or mark it as not an issue.', 'Fix the %d AI errors below first, or mark them as not an issue.', $openCounts['error'], 'gds-content-translation'),
-                                    $openCounts['error']
-                                )
-                                : __('Tick this once someone who knows the language has read the translation.', 'gds-content-translation'));
-        ?>
-                        </p>
-                    </td>
-                </tr>
-            </tbody>
-        </table>
+        <div class="gds-content-translation-review__bar">
+            <label class="gds-content-translation__proofread">
+                <input type="checkbox" class="gds-content-translation__proofread-input" data-post-id="<?php echo esc_attr((string) $postId); ?>" <?php checked($proofread); ?>>
+                <span class="gds-content-translation__proofread-label"><?php echo esc_html__('Mark as proofread', 'gds-content-translation'); ?></span>
+            </label>
+            <span class="gds-content-translation-review__hint" data-gds-ct-proofread-hint><?php echo esc_html(self::proofreadHint($openCounts['error'])); ?></span>
+        </div>
 
         <?php if ($edited) { ?>
             <div class="notice notice-warning inline"><p>
@@ -360,243 +377,73 @@ final class AuditReview
             </p></div>
         <?php } ?>
 
-        <?php self::renderLinks($post); ?>
+        <div class="gds-content-translation-review__more">
+            <details class="gds-content-translation-review__about">
+                <summary><?php echo esc_html__('About this review', 'gds-content-translation'); ?></summary>
+                <div class="gds-content-translation-review__details">
+                    <?php if ($review['summary'] !== '') { ?>
+                        <p><?php echo esc_html($review['summary']); ?></p>
+                    <?php } ?>
+                    <p class="description">
+                        <?php
+                        echo esc_html(sprintf(
+                            /* translators: 1: date and time, 2: model name */
+                            __('Reviewed %1$s by %2$s. Checks the content and the ACF text fields, not the title or excerpt.', 'gds-content-translation'),
+                            wp_date(get_option('date_format').' '.get_option('time_format'), (int) ($review['createdAt'] ?? 0)),
+                            TranslationAudit::models()[$review['model'] ?? ''] ?? ($review['model'] ?? '')
+                        ));
+        ?>
+                    </p>
+                    <?php if (TranslationAudit::isEnabled()) { ?>
+                        <p>
+                            <a
+                                class="button"
+                                href="<?php echo esc_url(self::getReviewActionUrl($postId)); ?>"
+                                data-gds-ct-rerun
+                                <?php if ($openTotal > 0) { ?>
+                                    data-confirm="<?php echo esc_attr(self::rerunConfirm($openTotal)); ?>"
+                                <?php } ?>
+                            ><?php echo esc_html__('Run the review again', 'gds-content-translation'); ?></a>
+                            <span class="description"><?php echo esc_html__('Reviews the current text, for example after larger edits.', 'gds-content-translation'); ?></span>
+                        </p>
+                    <?php } ?>
+                </div>
+            </details>
+            <?php self::renderLinks($post); ?>
+        </div>
 
         <?php if ($review['segments'] !== []) { ?>
-            <p class="gds-content-translation-review__help">
-                <?php echo esc_html__('Handle each remark here (use the suggestion, edit it, or mark it as not an issue), or in the editor, where each remark is a note on its block.', 'gds-content-translation'); ?>
-            </p>
-            <?php self::renderRemarks($postId, $post, $review, $view, $openCounts); ?>
-        <?php } ?>
-
-        <?php if (TranslationAudit::isEnabled()) { ?>
-            <p class="gds-content-translation-review__rerun">
-                <a
-                    class="button"
-                    href="<?php echo esc_url(self::getReviewActionUrl($postId)); ?>"
-                    <?php if ($openTotal > 0) { ?>
-                        data-confirm="<?php echo esc_attr(sprintf(
-                            /* translators: %d: number of open remarks */
-                            _n('Run the review again? Its %d open remark is replaced by the new review’s remarks.', 'Run the review again? Its %d open remarks are replaced by the new review’s remarks.', $openTotal, 'gds-content-translation'),
-                            $openTotal
-                        )); ?>"
-                    <?php } ?>
-                ><?php echo esc_html__('Run the review again', 'gds-content-translation'); ?></a>
-                <span class="description"><?php echo esc_html__('Reviews the current text, for example after larger edits.', 'gds-content-translation'); ?></span>
-            </p>
+            <div id="gds-ct-remarks-root" class="gds-content-translation-review__remarks" data-post-id="<?php echo esc_attr((string) $postId); ?>">
+                <p class="gds-content-translation-app__loading"><span class="spinner is-active" style="float:none;margin:0 8px 0 0"></span><?php echo esc_html__('Loading…', 'gds-content-translation'); ?></p>
+                <noscript><p><?php echo esc_html__('The remarks need JavaScript.', 'gds-content-translation'); ?></p></noscript>
+            </div>
+        <?php } else { ?>
+            <p><?php echo esc_html__('The review found no texts to check.', 'gds-content-translation'); ?></p>
         <?php } ?>
         <?php
     }
 
     /**
-     * @param  array<string, mixed>  $review
-     * @param  array{error: int, warning: int, suggestion: int}  $openCounts
+     * Under the proofread checkbox; the script says the same as it changes.
      */
-    private static function renderRemarks(int $postId, \WP_Post $post, array $review, string $view, array $openCounts): void
+    private static function proofreadHint(int $errors): string
     {
-        $remarksBySegment = [];
-        $closed = 0;
-
-        foreach ($review['remarks'] as $remark) {
-            $remarksBySegment[$remark['segment']][] = $remark;
-
-            if (($remark['state'] ?? 'open') !== 'open') {
-                $closed++;
-            }
-        }
-
-        // What each text says now, to flag remarks whose text was changed in the editor.
-        $source = get_post((int) $review['sourceId']);
-        $current = $source ? TranslationAudit::currentSegments($source, $post)['segments'] : [];
-        $currentById = array_column($current, 'translation', 'id');
-        $openTotal = array_sum($openCounts);
-
-        $counts = [];
-
-        foreach (['error', 'warning', 'suggestion'] as $severity) {
-            if ($openCounts[$severity] > 0) {
-                $counts[] = sprintf('%d %s', $openCounts[$severity], mb_strtolower(self::severityLabel($severity, $openCounts[$severity])));
-            }
-        }
-
-        $views = [
-            'open' => sprintf(
-                /* translators: %d: number of open remarks */
-                _n('%d open remark', '%d open remarks', $openTotal, 'gds-content-translation'),
-                $openTotal
-            ),
-            'remarks' => sprintf(
-                /* translators: %d: number of remarks */
-                __('All %d remarks', 'gds-content-translation'),
-                count($review['remarks'])
-            ),
-            'all' => sprintf(
-                /* translators: %d: number of texts */
-                __('All %d texts', 'gds-content-translation'),
-                count($review['segments'])
-            ),
-        ];
-
-        $links = [];
-
-        foreach ($views as $key => $label) {
-            $links[] = $key === $view
-                ? '<strong aria-current="page">'.esc_html($label).'</strong>'
-                : '<a href="'.esc_url(self::getUrl($postId, $key)).'">'.esc_html($label).'</a>';
-        }
-
-        ?>
-        <?php self::renderActionMessage(); ?>
-        <h2 class="gds-content-translation-review__counts">
-            <?php
-            echo esc_html($counts !== [] ? implode(' · ', $counts) : __('No open remarks', 'gds-content-translation'));
-
-        if ($closed > 0) {
-            echo ' <span class="gds-content-translation-review__closed">'.esc_html(sprintf(
-                /* translators: %d: number of fixed or dismissed remarks */
-                _n('(%d handled)', '(%d handled)', $closed, 'gds-content-translation'),
-                $closed
-            )).'</span>';
-        }
-        ?>
-        </h2>
-        <p class="gds-content-translation-review__filter"><?php echo implode(' | ', $links); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- escaped above.?></p>
-
-        <table class="widefat gds-content-translation-review__table">
-            <thead>
-                <tr>
-                    <th scope="col" class="gds-content-translation-review__number">#</th>
-                    <th scope="col"><?php echo esc_html(sprintf(
-                        /* translators: %s: language name */
-                        __('Original (%s)', 'gds-content-translation'),
-                        self::languageName((string) $review['sourceLanguage'])
-                    )); ?></th>
-                    <th scope="col"><?php echo esc_html(sprintf(
-                        /* translators: %s: language name */
-                        __('Translation (%s)', 'gds-content-translation'),
-                        self::languageName((string) $review['targetLanguage'])
-                    )); ?></th>
-                    <th scope="col"><?php echo esc_html__('AI remark', 'gds-content-translation'); ?></th>
-                </tr>
-            </thead>
-            <tbody>
-                <?php
-                $shown = 0;
-
-        foreach ($review['segments'] as $segment) {
-            $remarks = $remarksBySegment[$segment['id']] ?? [];
-
-            if ($view === 'open') {
-                $remarks = array_values(array_filter($remarks, static fn (array $remark): bool => ($remark['state'] ?? 'open') === 'open'));
-            }
-
-            if ($view !== 'all' && $remarks === []) {
-                continue;
-            }
-
-            $shown++;
-            $changed = isset($currentById[$segment['id']]) && $currentById[$segment['id']] !== $segment['translation'];
-            echo self::renderSegmentRow($postId, $segment, $remarks, $changed, $view); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- escaped while building.
-        }
-
-        if ($shown === 0) {
-            echo '<tr><td colspan="4">'.esc_html($view === 'open' ? __('All remarks are handled.', 'gds-content-translation') : __('The review found nothing to fix.', 'gds-content-translation')).'</td></tr>';
-        }
-        ?>
-            </tbody>
-        </table>
-        <?php
+        return $errors > 0
+            ? sprintf(
+                /* translators: %d: number of open errors */
+                _n('Fix the AI error first, or mark it as not an issue.', 'Fix the %d AI errors first, or mark them as not an issue.', $errors, 'gds-content-translation'),
+                $errors
+            )
+            : __('Tick this once someone who knows the language has read the translation.', 'gds-content-translation');
     }
 
-    /**
-     * @param  array<string, mixed>  $segment
-     * @param  list<array<string, mixed>>  $remarks
-     */
-    private static function renderSegmentRow(int $postId, array $segment, array $remarks, bool $changed, string $view): string
+    private static function rerunConfirm(int $openTotal): string
     {
-        $remarkHtml = '';
-
-        foreach ($remarks as $remark) {
-            $state = (string) ($remark['state'] ?? 'open');
-            $suggestion = (string) $remark['suggestion'];
-
-            $remarkHtml .= sprintf(
-                '<div id="gds-ct-remark-%1$d" class="gds-content-translation-review__remark gds-content-translation-review__remark--%2$s gds-content-translation-review__remark--%3$s"><p><span class="gds-content-translation-review__severity">%4$s</span> <span class="gds-content-translation-review__category">%5$s</span>%6$s</p><p>%7$s</p>%8$s%9$s</div>',
-                (int) $remark['id'],
-                esc_attr($remark['severity']),
-                esc_attr($state),
-                esc_html(self::severityLabel($remark['severity'])),
-                esc_html(self::categoryLabel($remark['category'])),
-                $state !== 'open' ? ' <span class="gds-content-translation-review__state">'.esc_html(self::stateLabel($remark)).'</span>' : '',
-                esc_html($remark['issue']),
-                $suggestion !== '' && $state === 'open'
-                    ? '<p class="gds-content-translation-review__suggestion"><strong>'.esc_html__('Suggestion:', 'gds-content-translation').'</strong> '.TextDiff::render((string) $segment['translation'], $suggestion).'</p>'
-                    : '',
-                self::renderRemarkActions($postId, $segment, $remark, $changed, $view)
-            );
-        }
-
         return sprintf(
-            '<tr class="%1$s"><td class="gds-content-translation-review__number">%2$s</td><td>%3$s</td><td>%4$s%5$s</td><td>%6$s</td></tr>'."\n",
-            $remarks !== [] ? 'gds-content-translation-review__row--remarks' : '',
-            // An ACF field says which one.
-            (int) $segment['id'].(! empty($segment['label']) ? '<span class="gds-content-translation-review__field">'.esc_html($segment['label']).'</span>' : ''),
-            wp_kses_post($segment['source']),
-            wp_kses_post($segment['translation']),
-            $changed ? '<p class="gds-content-translation-review__changed">'.esc_html__('Changed since the review', 'gds-content-translation').'</p>' : '',
-            $remarkHtml !== '' ? $remarkHtml : '<span class="gds-content-translation-review__ok">'.esc_html__('No remarks', 'gds-content-translation').'</span>'
+            /* translators: %d: number of open remarks */
+            _n('Run the review again? Its %d open remark is replaced by the new review’s remarks.', 'Run the review again? Its %d open remarks are replaced by the new review’s remarks.', $openTotal, 'gds-content-translation'),
+            $openTotal
         );
-    }
-
-    /**
-     * @param  array<string, mixed>  $segment
-     * @param  array<string, mixed>  $remark
-     */
-    private static function renderRemarkActions(int $postId, array $segment, array $remark, bool $changed, string $view): string
-    {
-        $hidden = sprintf(
-            '<input type="hidden" name="action" value="%1$s"><input type="hidden" name="post" value="%2$d"><input type="hidden" name="remark" value="%3$d"><input type="hidden" name="view" value="%4$s">%5$s',
-            esc_attr(self::remarkAction),
-            $postId,
-            (int) $remark['id'],
-            esc_attr($view),
-            wp_nonce_field(self::remarkAction.'_'.$postId, '_wpnonce', true, false)
-        );
-        $form = static fn (string $inner, string $class = ''): string => '<form method="post" action="'.esc_url(admin_url('admin-post.php')).'" class="gds-content-translation-review__actions '.esc_attr($class).'">'.$hidden.$inner.'</form>';
-        $button = static fn (string $operation, string $label, string $class = 'button button-small'): string => sprintf(
-            '<button type="submit" name="operation" value="%1$s" class="%2$s">%3$s</button>',
-            esc_attr($operation),
-            esc_attr($class),
-            esc_html($label)
-        );
-
-        if (($remark['state'] ?? 'open') !== 'open') {
-            return $form($button('reopen', __('Reopen', 'gds-content-translation')));
-        }
-
-        // A text changed in the editor can no longer be replaced from here.
-        if ($changed) {
-            return $form($button('fixed', __('Mark as fixed', 'gds-content-translation'), 'button button-small button-primary').$button('dismiss', __('Not an issue', 'gds-content-translation')));
-        }
-
-        $actions = $form(
-            ($remark['suggestion'] !== '' ? $button('use', __('Use suggestion', 'gds-content-translation'), 'button button-small button-primary') : '')
-            .$button('dismiss', __('Not an issue', 'gds-content-translation'))
-        );
-
-        $actions .= sprintf(
-            '<details class="gds-content-translation-review__edit"><summary>%1$s</summary>%2$s</details>',
-            esc_html__('Edit before saving', 'gds-content-translation'),
-            $form(sprintf(
-                '<label class="screen-reader-text" for="gds-ct-edit-%1$d">%2$s</label><textarea id="gds-ct-edit-%1$d" name="text" rows="4" class="large-text">%3$s</textarea>%4$s',
-                (int) $remark['id'],
-                esc_html__('Translation', 'gds-content-translation'),
-                esc_textarea((string) ($remark['suggestion'] !== '' ? $remark['suggestion'] : $segment['translation'])),
-                $button('edit', __('Save to translation', 'gds-content-translation'), 'button button-small button-primary')
-            ), 'is-stacked')
-        );
-
-        return $actions;
     }
 
     /**
@@ -653,14 +500,15 @@ final class AuditReview
         $sourceName = $default ? StatusList::languageName($default) : '';
 
         ?>
-        <div class="notice notice-warning inline gds-content-translation-review__links">
-            <h3 class="gds-content-translation-review__links-heading"><?php echo esc_html(sprintf(
+        <details class="gds-content-translation-review__links">
+            <summary><?php echo esc_html(sprintf(
                 /* translators: 1: number of links, 2: language name of the original, e.g. Finnish */
-                _n('%1$d link still leads to the %2$s page', '%1$d links still lead to the %2$s pages', count($missing), 'gds-content-translation'),
+                _n('%1$d link leads to a %2$s page', '%1$d links lead to %2$s pages', count($missing), 'gds-content-translation'),
                 count($missing),
                 $sourceName
-            )); ?></h3>
-            <p><?php echo esc_html(sprintf(
+            )); ?></summary>
+            <div class="gds-content-translation-review__details">
+            <p class="description"><?php echo esc_html(sprintf(
                 /* translators: 1: language name of the translation, e.g. English */
                 __('These pages have no %1$s version yet. Once one is created, the links on this page go to it by themselves; nothing needs to be edited.', 'gds-content-translation'),
                 $languageName
@@ -690,7 +538,8 @@ final class AuditReview
                     </li>
                 <?php } ?>
             </ul>
-        </div>
+            </div>
+        </details>
         <?php
     }
 
@@ -719,36 +568,6 @@ final class AuditReview
                 $polylang->filter_lang = $filter;
             }
         }
-    }
-
-    /**
-     * What the last remark action did, above the remarks it was taken in.
-     */
-    private static function renderActionMessage(): void
-    {
-        $done = isset($_GET['done']) && is_string($_GET['done']) ? sanitize_text_field(wp_unslash($_GET['done'])) : '';
-        $messages = [
-            'use' => __('The suggestion is saved to the translation.', 'gds-content-translation'),
-            'edit' => __('Your text is saved to the translation.', 'gds-content-translation'),
-            'fixed' => __('Marked as fixed.', 'gds-content-translation'),
-            'dismiss' => __('Marked as not an issue.', 'gds-content-translation'),
-            'reopen' => __('The remark is open again.', 'gds-content-translation'),
-            'error:gds_ct_audit_changed' => __('Not saved: this text was changed in the editor after the review. Make the change there, or mark the remark as fixed.', 'gds-content-translation'),
-            'error:gds_ct_audit_locked' => __('Not saved: someone has this translation open in the editor. Make the change there, or try again when it is closed.', 'gds-content-translation'),
-        ];
-
-        echo '<div id="gds-ct-remarks" class="gds-content-translation-review__done" role="status">';
-
-        if ($done !== '') {
-            $error = str_starts_with($done, 'error:');
-            printf(
-                '<div class="notice notice-%1$s inline"><p>%2$s</p></div>',
-                $error ? 'error' : 'success',
-                esc_html($messages[$done] ?? ($error ? __('That did not work. Reload the page and try again.', 'gds-content-translation') : ''))
-            );
-        }
-
-        echo '</div>';
     }
 
     /**

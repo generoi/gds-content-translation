@@ -13,6 +13,7 @@ use GeneroWP\ContentTranslation\AuditReview;
 use GeneroWP\ContentTranslation\BulkTranslation;
 use GeneroWP\ContentTranslation\StatusList;
 use GeneroWP\ContentTranslation\TranslationActions;
+use GeneroWP\ContentTranslation\TranslationAudit;
 use Throwable;
 use WP_Error;
 use WP_REST_Request;
@@ -30,6 +31,9 @@ if (! defined('ABSPATH')) {
  * - POST /actions/{action} {ids, args}: an action on rows (default-language
  *   post IDs), with a result per row and a notice for the whole request.
  * - GET  /jobs, DELETE /jobs: the bulk AI translation queue.
+ * - GET  /reviews/{id}: the AI review page's table of remarks.
+ * - POST /reviews/{id}/remarks {operation, remarks, text}: use suggestions,
+ *   save an edit, mark remarks fixed or not an issue, or reopen them.
  *
  * Every route needs the capability of the screen; each action also checks
  * the posts it changes.
@@ -83,6 +87,25 @@ final class StatusController
             ],
         ]);
 
+        $canEditPost = static fn (WP_REST_Request $request): bool => self::permission() && current_user_can('edit_post', (int) $request['id']);
+
+        register_rest_route(self::namespace, '/reviews/(?P<id>\\d+)', [
+            'methods' => 'GET',
+            'callback' => [$this, 'review'],
+            'permission_callback' => $canEditPost,
+        ]);
+
+        register_rest_route(self::namespace, '/reviews/(?P<id>\\d+)/remarks', [
+            'methods' => 'POST',
+            'callback' => [$this, 'changeRemarks'],
+            'permission_callback' => $canEditPost,
+            'args' => [
+                'operation' => ['type' => 'string', 'required' => true, 'enum' => ['use', 'edit', 'fixed', 'dismiss', 'reopen']],
+                'remarks' => ['type' => 'array', 'required' => true, 'items' => ['type' => 'integer'], 'minItems' => 1, 'maxItems' => self::maxIds],
+                'text' => ['type' => 'string', 'default' => ''],
+            ],
+        ]);
+
         register_rest_route(self::namespace, '/jobs', [
             [
                 'methods' => 'GET',
@@ -125,6 +148,44 @@ final class StatusController
         $response->header('X-WP-TotalPages', (string) $result['totalPages']);
 
         return $response;
+    }
+
+    public function review(WP_REST_Request $request): WP_REST_Response|WP_Error
+    {
+        $postId = (int) $request['id'];
+
+        if (! TranslationAudit::get($postId)) {
+            return new WP_Error('gds_ct_no_review', __('There is no AI review for this post.', 'gds-content-translation'), ['status' => 404]);
+        }
+
+        return rest_ensure_response(AuditReview::remarkRows($postId));
+    }
+
+    /**
+     * One operation on some remarks, each on its own: a suggestion that can
+     * no longer be used fails alone. Answers with a result per remark and the
+     * table as it is now.
+     */
+    public function changeRemarks(WP_REST_Request $request): WP_REST_Response|WP_Error
+    {
+        $postId = (int) $request['id'];
+
+        if (! TranslationAudit::get($postId)) {
+            return new WP_Error('gds_ct_no_review', __('There is no AI review for this post.', 'gds-content-translation'), ['status' => 404]);
+        }
+
+        $results = [];
+
+        foreach (array_unique(array_map('intval', (array) $request['remarks'])) as $remarkId) {
+            $result = AuditReview::changeRemark($postId, $remarkId, (string) $request['operation'], (string) $request['text']);
+            $results[] = [
+                'id' => $remarkId,
+                'ok' => $result === true,
+                'message' => $result instanceof WP_Error ? $result->get_error_message() : '',
+            ];
+        }
+
+        return rest_ensure_response(['results' => $results] + AuditReview::remarkRows($postId));
     }
 
     /**

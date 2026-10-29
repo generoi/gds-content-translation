@@ -36,3 +36,8 @@ export function notifyError( message: string ): void {
 		explicitDismiss: true,
 	} );
 }
+
+/** Takes back every snackbar, such as an error a later action made moot. */
+export function clearNotices(): void {
+	void dispatch( noticesStore ).removeAllNotices( 'snackbar' );
+}

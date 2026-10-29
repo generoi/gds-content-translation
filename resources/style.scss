@@ -660,3 +660,174 @@ $chip: 22px;
 		color: #fff;
 	}
 }
+
+// The AI review page's remarks.
+.gds-ct-review {
+	&__summary {
+		justify-content: space-between;
+	}
+
+	&__chip--error:not([aria-pressed='true']) strong {
+		color: $red;
+	}
+
+	&__modes {
+		display: inline-flex;
+		gap: 2px;
+	}
+
+	.dataviews-wrapper {
+		background: #fff;
+		border: 1px solid $border;
+	}
+
+	&__chip--error, &__chip--warning, &__chip--suggestion {
+		gap: 4px;
+	}
+
+	// Long texts wrap within their column's width; every cell starts at
+	// the top.
+	.dataviews-view-table td {
+		vertical-align: top;
+	}
+
+	.dataviews-view-table tbody .dataviews-view-table__cell-content-wrapper {
+		display: block;
+		min-width: 0;
+		max-width: none;
+		white-space: normal;
+		overflow-wrap: anywhere;
+	}
+
+	.dataviews-view-table tbody td.dataviews-view-table__checkbox-column .dataviews-view-table__cell-content-wrapper {
+		display: flex;
+	}
+
+	&__segment {
+		color: $subtle;
+		font-variant-numeric: tabular-nums;
+	}
+
+	&__field {
+		display: block;
+		font-size: 11px;
+	}
+
+	&__text {
+		line-height: 1.5;
+
+		p {
+			margin: 0;
+		}
+	}
+
+	&__diff {
+		ins {
+			background: #d1f0d6;
+			color: #00450c;
+			text-decoration: none;
+		}
+
+		del {
+			background: #fbe0e1;
+			color: #8a2424;
+		}
+	}
+
+	&__tag {
+		display: inline-block;
+		margin-top: 4px;
+		padding: 0 6px;
+		border-radius: 3px;
+		background: #f0f0f1;
+		color: $muted;
+		font-size: 11px;
+		font-weight: 600;
+	}
+
+	&__remark {
+		padding-left: 8px;
+		border-left: 3px solid #dba617;
+
+		p {
+			margin: 0 0 4px;
+		}
+
+		&--error {
+			border-left-color: #d63638;
+		}
+
+		&--suggestion {
+			border-left-color: #72aee6;
+		}
+
+		&.is-closed {
+			border-left-color: #c3c4c7;
+			color: $muted;
+		}
+	}
+
+	&__remark-head {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: baseline;
+		gap: 6px;
+
+		.gds-ct-review__tag {
+			margin: 0;
+		}
+	}
+
+	&__severity {
+		font-weight: 600;
+
+		&--error {
+			color: $red;
+		}
+	}
+
+	&__category {
+		color: $subtle;
+	}
+
+	&__issue {
+		line-height: 1.5;
+	}
+
+	&__buttons {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 4px;
+		margin-top: 6px;
+	}
+
+	&__none {
+		color: $subtle;
+	}
+
+	&__empty {
+		padding: 24px;
+		color: $muted;
+	}
+
+	&__error {
+		color: $red;
+	}
+
+	&__modal-label {
+		margin: 0 0 4px;
+		color: $muted;
+		font-size: 12px;
+	}
+
+	&__modal-source {
+		margin: 0 0 12px;
+		padding: 8px 12px;
+		background: #f6f7f7;
+	}
+
+	&__modal-issue {
+		margin: 0 0 12px;
+		color: $muted;
+	}
+}

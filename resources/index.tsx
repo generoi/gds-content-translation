@@ -1,10 +1,12 @@
 /**
- * Content translation status (Polylang → Content translation status), the
- * list screen. The AI review page and the settings stay server-rendered.
+ * Content translation status (Polylang → Content translation status): the
+ * list screen, and the table of remarks on the AI review page, whose other
+ * parts are server-rendered.
  */
 import domReady from '@wordpress/dom-ready';
 import { createRoot } from '@wordpress/element';
 import { App } from './app';
+import { ReviewApp } from './review/review-app';
 import './style.scss';
 
 domReady( () => {
@@ -12,5 +14,11 @@ domReady( () => {
 
 	if ( root ) {
 		createRoot( root ).render( <App /> );
+	}
+
+	const remarks = document.getElementById( 'gds-ct-remarks-root' );
+
+	if ( remarks ) {
+		createRoot( remarks ).render( <ReviewApp postId={ Number( remarks.dataset.postId ) } /> );
 	}
 } );
