@@ -74,6 +74,12 @@ final class BulkTranslation
      */
     public static function enqueue(array $sourceIds, array $languages, string $mode = MachineTranslation::modeAi): array
     {
+        // A new run after the last one finished: its results leave the
+        // panel, which would otherwise count them with this run's.
+        if (! array_filter(self::all(), static fn (array $job): bool => in_array($job['status'], ['queued', 'running'], true))) {
+            self::clearFinished();
+        }
+
         $batch = wp_generate_password(12, false);
         $results = [];
         $queued = 0;
@@ -106,7 +112,10 @@ final class BulkTranslation
 
         if ($queued > 0) {
             self::schedule();
-            self::spawn();
+            // New work starts at once when no worker is running: the worker
+            // lock already keeps two from running, and the ten-second gap
+            // between starts left a translation queued until the stall check.
+            self::spawn(! self::workerAlive());
         }
 
         return $results;
