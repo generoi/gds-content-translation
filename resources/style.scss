@@ -831,3 +831,58 @@ $chip: 22px;
 		color: $muted;
 	}
 }
+
+// Phones: each text is a card, the original above its translation and the
+// remark below; the row's ⋯ menu sits in its corner.
+@media (max-width: 782px) {
+	.gds-ct-review {
+		&__summary {
+			justify-content: flex-start;
+		}
+
+		.dataviews-view-table,
+		.dataviews-view-table tbody {
+			display: block;
+		}
+
+		.dataviews-view-table thead {
+			display: none;
+		}
+
+		.dataviews-view-table tbody tr {
+			position: relative;
+			display: flex;
+			flex-direction: column;
+			gap: 6px;
+			padding: 12px 44px 12px 12px;
+			border-bottom: 1px solid $border;
+		}
+
+		.dataviews-view-table tbody td {
+			display: block;
+			width: auto !important;
+			padding: 0 !important;
+			border: 0;
+		}
+
+		.dataviews-view-table tbody td.dataviews-view-table__checkbox-column {
+			position: absolute;
+			top: 12px;
+			left: 12px;
+		}
+
+		.dataviews-view-table tbody td.dataviews-view-table__checkbox-column + td {
+			padding-left: 32px !important;
+		}
+
+		.dataviews-view-table tbody td.dataviews-view-table__actions-column {
+			position: absolute;
+			top: 6px;
+			right: 4px;
+		}
+
+		&__text {
+			color: #1d2327;
+		}
+	}
+}
