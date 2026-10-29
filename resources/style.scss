@@ -1,0 +1,662 @@
+// DataViews' own stylesheet; its --wpds-* tokens come from core's
+// wp-components stylesheet, which the PHP side lists as a dependency.
+@use '@wordpress/dataviews/build-style/style';
+
+$border: #dcdcde;
+$muted: #50575e;
+$subtle: #646970;
+$link: #2271b1;
+$red: #b32d2e;
+$green: #007017;
+$row: 40px;
+$chip: 22px;
+
+// The placeholder PHP prints keeps the page's height until the app is
+// there, and out of the flow, so the app replaces it without a jump.
+.gds-content-translation-app #gds-content-translation-root {
+	position: relative;
+	min-height: calc(100vh - 160px);
+}
+
+.gds-content-translation-app__loading {
+	position: absolute;
+	top: 12px;
+	left: 0;
+	display: flex;
+	align-items: center;
+	margin: 0;
+}
+
+.gds-ct {
+	padding-bottom: 80px;
+
+	// Post type tabs: one compact row.
+	&__tabs {
+		margin-bottom: 8px;
+
+		.nav-tab {
+			display: inline-flex;
+			align-items: center;
+			gap: 4px;
+			padding: 4px 10px;
+			font-size: 13px;
+			line-height: 20px;
+		}
+
+		.dashicons {
+			font-size: 16px;
+			width: 16px;
+			height: 16px;
+		}
+	}
+
+	&__tab-icon {
+		width: 16px;
+		height: 16px;
+	}
+
+	// The counts: one line, always this tall, filled in or not.
+	&__summary {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 4px 16px;
+		min-height: 32px;
+		margin: 0 0 8px;
+		font-size: 13px;
+	}
+
+	&__summary-group {
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+	}
+
+	&__summary-label {
+		margin-right: 2px;
+		color: $muted;
+	}
+
+	&__summary-done {
+		color: $green;
+	}
+
+	&__summary-clear.components-button {
+		font-size: 13px;
+	}
+
+	&__chip {
+		display: inline-flex;
+		align-items: center;
+		height: $chip;
+		padding: 0 7px;
+		border: 1px solid $border;
+		border-radius: 11px;
+		background: #fff;
+		color: #1d2327;
+		font: inherit;
+		font-size: 12px;
+		font-variant-numeric: tabular-nums;
+		cursor: pointer;
+
+		&:hover {
+			border-color: $link;
+		}
+
+		&:focus-visible {
+			outline: 2px solid $link;
+			outline-offset: 1px;
+		}
+
+		&[aria-pressed='true'] {
+			border-color: $link;
+			background: $link;
+			color: #fff;
+		}
+	}
+
+	&__chip-code {
+		font-weight: 600;
+	}
+
+	&__summary-group--missing &__chip:not([aria-pressed='true']) &__chip-code,
+	&__summary-group--errors &__chip:not([aria-pressed='true']) &__chip-code {
+		color: $red;
+	}
+
+	// The table: white, rows of one height.
+	&__table {
+		background: #fff;
+		border: 1px solid $border;
+		border-radius: 4px;
+
+		// While the first rows load, the table holds a page's worth of space.
+		&.is-loading {
+			min-height: 560px;
+		}
+
+		.dataviews-wrapper {
+			height: auto;
+			border-radius: 4px;
+		}
+
+		.dataviews-view-table td {
+			height: $row;
+			padding-top: 0;
+			padding-bottom: 0;
+			vertical-align: middle;
+		}
+
+		.dataviews-view-table__cell-content-wrapper {
+			min-width: 0;
+		}
+
+		.dataviews-view-table__actions-column {
+			width: 48px;
+		}
+
+		// The row actions column needs no heading.
+		.dataviews-view-table__actions-column span {
+			@media screen and (min-width: 601px) {
+				visibility: hidden;
+			}
+		}
+	}
+
+	&__empty {
+		padding: 24px;
+		text-align: center;
+	}
+
+	// DataViews makes the title column's link bold, black and one line.
+	&__table .dataviews-title-field {
+		white-space: nowrap;
+
+		a {
+			display: inline;
+		}
+
+		.gds-ct__title-link {
+			color: $link;
+		}
+	}
+
+	// The original: title, its status when not published, its notes.
+	&__title {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		min-width: 160px;
+		max-width: 440px;
+	}
+
+	&__title-link {
+		overflow: hidden;
+		min-width: 0;
+		font-weight: 600;
+		font-size: 13px;
+		color: $link;
+		text-decoration: none;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+
+		&:hover,
+		&:focus {
+			text-decoration: underline;
+		}
+	}
+
+	&__post-status {
+		flex-shrink: 0;
+		color: $subtle;
+		font-size: 12px;
+	}
+
+	&__notes {
+		display: inline-flex;
+		flex-shrink: 0;
+		align-items: center;
+		gap: 2px;
+		font-size: 12px;
+		color: #996800;
+		text-decoration: none;
+
+		.dashicons {
+			font-size: 14px;
+			width: 14px;
+			height: 14px;
+		}
+	}
+
+	// A language cell: one line, never wrapping.
+	&__cell {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		min-width: 200px;
+		height: $chip + 6px;
+		white-space: nowrap;
+		color: #1d2327;
+
+		&:focus {
+			outline: 2px solid $link;
+			outline-offset: 2px;
+		}
+	}
+
+	&__cell-language {
+		display: none;
+	}
+
+	&__cell.is-saving {
+		opacity: 0.6;
+	}
+
+	&__spacer {
+		flex: 1;
+	}
+
+	// Chips: the same height and shape whatever they say.
+	&__status,
+	&__state,
+	&__audit {
+		display: inline-flex;
+		flex-shrink: 0;
+		align-items: center;
+		gap: 4px;
+		height: $chip;
+		padding: 0 7px;
+		border-radius: 3px;
+		font-size: 12px;
+		line-height: 1;
+		text-decoration: none;
+		white-space: nowrap;
+	}
+
+	&__status {
+		background: #f0f0f1;
+		color: #1d2327;
+
+		&--publish {
+			background: #edfaef;
+			color: $green;
+		}
+
+		&--future,
+		&--pending,
+		&--private {
+			background: #f0f6fc;
+			color: #1d2327;
+		}
+
+		&:hover,
+		&:focus {
+			text-decoration: underline;
+		}
+	}
+
+	// Proofread: a tick in the status chip.
+	&__tick {
+		display: inline-block;
+		width: 9px;
+		height: 5px;
+		margin-top: -3px;
+		border-bottom: 2px solid currentColor;
+		border-left: 2px solid currentColor;
+		transform: rotate(-45deg);
+	}
+
+	&__state {
+		min-width: 64px;
+		justify-content: center;
+
+		&--working {
+			min-width: 96px;
+			background: #f0f6fc;
+		}
+
+		&--trashed {
+			background: #f0f0f1;
+			color: $muted;
+		}
+
+		&--failed {
+			background: #fcf0f1;
+			color: $red;
+			cursor: help;
+		}
+	}
+
+	&__audit {
+		font-weight: 600;
+
+		&:hover,
+		&:focus {
+			text-decoration: underline;
+		}
+
+		&--errors,
+		&--failed {
+			background: #fcf0f1;
+			color: #8a2424;
+		}
+
+		&--remarks {
+			background: #fcf9e8;
+			color: #6d552e;
+		}
+
+		&--pending {
+			min-width: 88px;
+			background: #f0f6fc;
+			color: #2c3338;
+			font-weight: 400;
+		}
+	}
+
+	// AI translate: the one action of an empty cell, light enough that
+	// the translated cells stand out from a column of them.
+	&__create {
+		display: inline-flex;
+		align-items: center;
+		height: $chip;
+		padding: 0 6px;
+		border: 1px solid transparent;
+		border-radius: 3px;
+		color: $link;
+		font-size: 12px;
+		text-decoration: none;
+
+		&::before {
+			content: '+' / '';
+			margin-right: 3px;
+			font-weight: 600;
+		}
+
+		&:hover,
+		&:focus {
+			border-color: $link;
+			background: #f0f6fc;
+			color: #135e96;
+		}
+
+		&[aria-disabled='true'] {
+			opacity: 0.5;
+			pointer-events: none;
+		}
+	}
+
+	&__inline-action {
+		height: $chip;
+		padding: 0 4px;
+		border: 0;
+		background: none;
+		color: $link;
+		font: inherit;
+		font-size: 12px;
+		cursor: pointer;
+
+		&:hover,
+		&:focus {
+			text-decoration: underline;
+		}
+
+		&:disabled {
+			opacity: 0.5;
+			cursor: default;
+		}
+	}
+
+	// The ⋯ menu of a cell sits right after its chips. It takes its place
+	// all the time, so nothing moves, but shows only on the row being
+	// pointed at or worked in (and on touch screens, always).
+	&__menu .components-button {
+		width: 24px;
+		min-width: 24px;
+		height: 24px;
+		padding: 0;
+		color: $subtle;
+	}
+
+	&__menu {
+		opacity: 0;
+
+		&:focus-within,
+		.is-open &,
+		&:has([aria-expanded='true']) {
+			opacity: 1;
+		}
+	}
+
+	&__table tr:hover &__menu,
+	&__table tr:focus-within &__menu {
+		opacity: 1;
+	}
+
+	@media (hover: none) {
+		&__menu {
+			opacity: 1;
+		}
+	}
+
+	&__spinner {
+		flex-shrink: 0;
+		width: 10px;
+		height: 10px;
+		border: 2px solid currentColor;
+		border-right-color: transparent;
+		border-radius: 50%;
+		animation: gds-ct-spin 0.8s linear infinite;
+
+		@media (prefers-reduced-motion: reduce) {
+			animation: none;
+		}
+	}
+
+	// The bulk queue, docked at the bottom of the screen.
+	&__progress {
+		position: fixed;
+		right: 24px;
+		bottom: 24px;
+		z-index: 9990;
+		width: 360px;
+		max-width: calc(100vw - 48px);
+		padding: 10px 12px;
+		border: 1px solid #c3c4c7;
+		border-left: 4px solid $link;
+		background: #fff;
+		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+		font-size: 13px;
+
+		&.is-active {
+			border-left-color: #dba617;
+		}
+
+		p {
+			margin: 0.25em 0;
+		}
+
+		ul {
+			max-height: 160px;
+			overflow: auto;
+			margin: 0.25em 0 0 1.25em;
+			list-style: disc;
+		}
+	}
+
+	&__progress-bar {
+		width: 100%;
+		max-width: none;
+		margin: 6px 0;
+	}
+
+	&__progress-failed,
+	&__progress-errors summary {
+		color: $red;
+	}
+
+	&__progress-buttons {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 8px;
+	}
+
+	&__modal {
+		max-width: 480px;
+
+		.components-notice {
+			margin: 12px 0;
+		}
+	}
+
+	&__modal-buttons {
+		margin-top: 16px;
+	}
+
+	&__modal-empty {
+		color: $subtle;
+	}
+
+	&__snackbars {
+		position: fixed;
+		bottom: 24px;
+		left: 184px;
+		z-index: 100000;
+		width: auto;
+		max-width: calc(100vw - 210px);
+
+		.folded & {
+			left: 60px;
+		}
+
+		@media (max-width: 960px) {
+			left: 60px;
+		}
+
+		@media (max-width: 782px) {
+			left: 12px;
+			max-width: calc(100vw - 24px);
+		}
+	}
+}
+
+// One canvas for the page, never removed; shown by an inline style while a burst runs.
+.gds-ct__celebration {
+	position: fixed;
+	inset: 0;
+	width: 100vw;
+	height: 100vh;
+	z-index: 999999;
+	pointer-events: none;
+	visibility: hidden;
+
+	@media (prefers-reduced-motion: reduce) {
+		display: none;
+	}
+}
+
+@keyframes gds-ct-spin {
+	to {
+		transform: rotate(360deg);
+	}
+}
+
+// Phones: one card per post, a line per language with its code.
+@media screen and (max-width: 600px) {
+	.gds-ct__table {
+		.dataviews-view-table thead {
+			display: none;
+		}
+
+		.dataviews-view-table,
+		.dataviews-view-table tbody,
+		.dataviews-view-table tr,
+		.dataviews-view-table td {
+			display: block;
+			width: auto !important;
+			max-width: none !important;
+			height: auto;
+		}
+
+		.dataviews-view-table tr {
+			position: relative;
+			padding: 6px 0;
+			border-bottom: 1px solid $border;
+		}
+
+		.dataviews-view-table td {
+			padding: 2px 12px;
+		}
+
+		.dataviews-view-table td.dataviews-view-table__checkbox-column {
+			position: absolute;
+			top: 6px;
+			right: 44px;
+			padding: 0;
+		}
+
+		.dataviews-view-table td.dataviews-view-table__actions-column {
+			position: absolute;
+			top: 2px;
+			right: 4px;
+			padding: 0;
+		}
+
+		.gds-ct__title {
+			max-width: none;
+			padding-right: 72px;
+		}
+	}
+
+	.gds-ct__cell-language {
+		display: inline-block;
+		width: 22px;
+		color: $muted;
+		font-size: 12px;
+		font-weight: 600;
+	}
+
+	// One line of counts that scrolls sideways, so it never grows taller.
+	.gds-ct__summary {
+		flex-wrap: nowrap;
+		overflow-x: auto;
+		white-space: nowrap;
+	}
+
+	// The languages side by side under the title.
+	.gds-ct__table .dataviews-view-table tr {
+		display: flex !important;
+		flex-wrap: wrap;
+		align-items: center;
+	}
+
+	.gds-ct__table .dataviews-view-table td.dataviews-view-table__primary-column,
+	.gds-ct__table .dataviews-view-table td:has(.gds-ct__title) {
+		flex-basis: 100%;
+	}
+
+	.gds-ct__table .dataviews-view-table td {
+		min-width: 0 !important;
+	}
+
+	.gds-ct__cell {
+		min-width: 0;
+		padding-right: 8px;
+	}
+
+	.gds-ct__progress {
+		right: 12px;
+		bottom: 12px;
+	}
+}
+
+// The bundled DataViews draws its checkbox tick as a stroke in the current
+// colour; core's stylesheet only sets a white fill, which left the tick
+// black on the blue box. White, here and in the modals.
+.languages_page_mlang_content_translation_status {
+	svg.components-checkbox-control__checked,
+	svg.components-checkbox-control__indeterminate {
+		color: #fff;
+	}
+}

@@ -1,0 +1,12 @@
+# build/ is committed and shipped: sites install this plugin from GitHub or
+# Packagist without a build step. The sources it is built from are left out
+# of the package Composer installs.
+/resources export-ignore
+/package.json export-ignore
+/package-lock.json export-ignore
+/tsconfig.json export-ignore
+/webpack.config.js export-ignore
+/eslint.config.mjs export-ignore
+
+# Built, minified: not for review.
+/build/** linguist-generated=true -diff

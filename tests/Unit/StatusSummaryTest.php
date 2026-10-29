@@ -67,4 +67,22 @@ class StatusSummaryTest extends WP_UnitTestCase
 
         $this->assertSame(['sv', 'en'], array_column($summary['missing'], 'slug'));
     }
+
+    public function test_it_counts_open_ai_errors_and_running_reviews(): void
+    {
+        $summary = StatusSummary::build([
+            $this->row([
+                'sv' => ['trashed' => false, 'proofread' => true, 'audit' => ['status' => 'done', 'errors' => 2]],
+                'en' => ['trashed' => false, 'proofread' => true, 'audit' => ['status' => 'pending', 'errors' => 0]],
+            ]),
+            $this->row([
+                'sv' => ['trashed' => false, 'proofread' => false, 'audit' => ['status' => 'done', 'errors' => 0]],
+                // In the trash: its review no longer counts.
+                'en' => ['trashed' => true, 'proofread' => false, 'audit' => ['status' => 'done', 'errors' => 3]],
+            ]),
+        ], $this->languages, 'Pages');
+
+        $this->assertSame([['name' => 'Svenska', 'slug' => 'sv', 'count' => 1]], $summary['aiErrors']);
+        $this->assertSame([['name' => 'English', 'slug' => 'en', 'count' => 1]], $summary['reviewRunning']);
+    }
 }

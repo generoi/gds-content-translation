@@ -132,65 +132,112 @@ class MachineTranslation
 
         check_admin_referer(self::action);
 
-        $sourceId = Request::id($_GET, 'source_id');
-        $langSlug = Request::key($_GET, 'lang');
-        $mode = Request::key($_GET, 'mode') === self::modeCopy ? self::modeCopy : self::modeAi;
+        $warnings = [];
+        $translationId = self::create(
+            Request::id($_GET, 'source_id'),
+            Request::key($_GET, 'lang'),
+            Request::key($_GET, 'mode') === self::modeCopy ? self::modeCopy : self::modeAi,
+            $warnings
+        );
 
+        if ($translationId instanceof WP_Error) {
+            $this->redirectWithNotice('error', $translationId->get_error_message());
+        }
+
+        foreach ($warnings as $warning) {
+            Notice::flash('warning', $warning);
+        }
+
+        // With a review running, the editor would save over the notes it adds:
+        // land on the review instead, which updates itself when it is done.
+        if (in_array(TranslationAudit::get($translationId)['status'] ?? '', ['pending', 'queued'], true)) {
+            wp_safe_redirect(AuditReview::getUrl($translationId));
+            exit;
+        }
+
+        $editLink = get_edit_post_link($translationId, 'raw');
+
+        if (! is_string($editLink) || $editLink === '') {
+            $this->redirectWithNotice('success', __('Translation created.', 'gds-content-translation'));
+        }
+
+        wp_safe_redirect($editLink);
+        exit;
+    }
+
+    /**
+     * Create the translation of a default-language post into another
+     * language, as the current user. Shared by the status screen's links and
+     * the bulk queue ({@see BulkTranslation}).
+     *
+     * Everything is checked before anything is written, and a second request
+     * for the same post and language is refused while one is running.
+     *
+     * Error codes: gds_ct_invalid, gds_ct_exists, gds_ct_forbidden,
+     * gds_ct_unavailable, gds_ct_locked, gds_ct_failed.
+     *
+     * @param  list<string>  $warnings  Filled with what went wrong in a translation that was still created.
+     * @return int|WP_Error The new translation's ID.
+     */
+    public static function create(int $sourceId, string $langSlug, string $mode = self::modeAi, ?array &$warnings = null): int|WP_Error
+    {
+        $warnings = [];
         $sourcePost = $sourceId > 0 ? get_post($sourceId) : null;
         $language = $langSlug !== '' ? PLL()->model->get_language($langSlug) : false;
 
-        // Everything is checked before anything is written.
         if (! $sourcePost instanceof WP_Post || ! $language) {
-            $this->redirectWithNotice('error', __('Invalid translation request.', 'gds-content-translation'));
+            return new WP_Error('gds_ct_invalid', __('Invalid translation request.', 'gds-content-translation'));
         }
 
         if (! pll_is_translated_post_type($sourcePost->post_type)) {
-            $this->redirectWithNotice('error', __('This post type is not translated with Polylang.', 'gds-content-translation'));
+            return new WP_Error('gds_ct_invalid', __('This post type is not translated with Polylang.', 'gds-content-translation'));
         }
 
         if ($sourcePost->post_status === 'trash') {
-            $this->redirectWithNotice('error', __('The original is in the trash. Restore it before translating it.', 'gds-content-translation'));
+            return new WP_Error('gds_ct_invalid', __('The original is in the trash. Restore it before translating it.', 'gds-content-translation'));
         }
 
         $sourceLanguage = pll_get_post_language($sourceId);
 
         if (! $sourceLanguage || $sourceLanguage !== pll_default_language('slug') || $sourceLanguage === $langSlug) {
-            $this->redirectWithNotice('error', __('Translations are created from the default-language original, into another language.', 'gds-content-translation'));
+            return new WP_Error('gds_ct_invalid', __('Translations are created from the default-language original, into another language.', 'gds-content-translation'));
         }
 
         $postTypeObject = get_post_type_object($sourcePost->post_type);
 
         if (! current_user_can('edit_post', $sourceId) || ! $postTypeObject || ! current_user_can($postTypeObject->cap->create_posts)) {
-            $this->redirectWithNotice('error', __('You are not allowed to translate this post.', 'gds-content-translation'));
+            return new WP_Error('gds_ct_forbidden', __('You are not allowed to translate this post.', 'gds-content-translation'));
         }
 
         $translations = pll_get_post_translations($sourceId);
         $existing = (int) ($translations[$langSlug] ?? 0);
 
         if ($existing && get_post_status($existing) !== 'trash') {
-            $this->redirectWithNotice('error', __('Translation already exists.', 'gds-content-translation'));
+            return new WP_Error('gds_ct_exists', __('Translation already exists.', 'gds-content-translation'));
         }
 
         if ($mode === self::modeCopy && ! self::isCopyAvailable()) {
-            $this->redirectWithNotice('error', __('Copying the source language is not available.', 'gds-content-translation'));
+            return new WP_Error('gds_ct_unavailable', __('Copying the source language is not available.', 'gds-content-translation'));
         }
 
-        if ($mode === self::modeAi && ! self::isAvailable()) {
-            $this->redirectWithNotice('error', __('Machine translation is not available.', 'gds-content-translation'));
+        if ($mode !== self::modeCopy && ! self::isAvailable()) {
+            return new WP_Error('gds_ct_unavailable', __('Machine translation is not available.', 'gds-content-translation'));
         }
+
+        $creator = new self;
 
         // A double click, or two editors at once, would otherwise create two
         // translations and leave one of them unlinked.
-        $lock = $this->acquireLock($sourceId, $langSlug);
+        $lock = $creator->acquireLock($sourceId, $langSlug);
 
         if ($lock === '') {
-            $this->redirectWithNotice('error', __('This translation is already being created. Reload the status screen in a moment.', 'gds-content-translation'));
+            return new WP_Error('gds_ct_locked', __('This translation is already being created. Reload the status screen in a moment.', 'gds-content-translation'));
         }
 
         $unlinked = false;
 
         try {
-            $client = $mode === self::modeCopy ? new SourceCopyClient : $this->getServiceClient();
+            $client = $mode === self::modeCopy ? new SourceCopyClient : $creator->getServiceClient();
 
             // A translation in the trash is still linked to its source, and
             // Polylang would refuse a second one for the same language. Unlink
@@ -203,12 +250,12 @@ class MachineTranslation
                 $unlinked = true;
             }
 
-            $translationId = $this->translatePost($sourcePost, $language, $client);
+            $translationId = $creator->translatePost($sourcePost, $language, $client, $warnings);
         } catch (Throwable $e) {
             error_log(sprintf('[gds-content-translation] Creating the %s translation of post %d failed: %s', $langSlug, $sourceId, $e));
             $translationId = new WP_Error('gds_ct_exception', $e->getMessage());
         } finally {
-            $this->releaseLock($lock);
+            $creator->releaseLock($lock);
         }
 
         if ($translationId instanceof WP_Error) {
@@ -219,21 +266,14 @@ class MachineTranslation
                 pll_save_post_translations($group);
             }
 
-            $this->redirectWithNotice('error', sprintf(
+            return new WP_Error('gds_ct_failed', sprintf(
                 /* translators: %s: error message */
                 __('Translation failed: %s', 'gds-content-translation'),
                 $translationId->get_error_message()
             ));
         }
 
-        $editLink = get_edit_post_link($translationId, 'raw');
-
-        if (! is_string($editLink) || $editLink === '') {
-            $this->redirectWithNotice('success', __('Translation created.', 'gds-content-translation'));
-        }
-
-        wp_safe_redirect($editLink);
-        exit;
+        return $translationId;
     }
 
     private function getServiceClient(): Client_Interface
@@ -257,7 +297,10 @@ class MachineTranslation
      * The client decides what the target strings become: the configured machine
      * translation service translates them, {@see SourceCopyClient} copies them.
      */
-    private function translatePost(WP_Post $sourcePost, object $targetLang, Client_Interface $client): int|WP_Error
+    /**
+     * @param  list<string>  $warnings
+     */
+    private function translatePost(WP_Post $sourcePost, object $targetLang, Client_Interface $client, array &$warnings): int|WP_Error
     {
         $polylang = PLL();
 
@@ -275,13 +318,13 @@ class MachineTranslation
 
             $processor = new Processor($polylang, $client);
 
-            $result = $processor->translate($container);
+            $result = self::withoutNotices($processor->translate($container));
 
             if ($result->has_errors()) {
                 return new WP_Error('gds_ct_translation_failed', implode('; ', $result->get_error_messages()));
             }
 
-            $saveResult = $processor->save($container);
+            $saveResult = self::withoutNotices($processor->save($container));
         } finally {
             $polylang->curlang = $currentLangBackup;
         }
@@ -296,20 +339,91 @@ class MachineTranslation
 
         // Polylang Pro saves entity by entity and carries on past errors (a
         // term, say). The post itself exists, so open it, and say what went
-        // wrong on the status screen rather than calling it a failure.
+        // wrong rather than calling it a failure.
         if ($saveResult->has_errors()) {
             $messages = implode('; ', $saveResult->get_error_messages());
             error_log(sprintf('[gds-content-translation] The %s translation of post %d was created with errors: %s', $targetLang->slug, $sourcePost->ID, $messages));
-            Notice::flash('warning', sprintf(
+            $warnings[] = sprintf(
                 /* translators: %s: error messages */
                 __('The translation was created, but some parts could not be saved: %s', 'gds-content-translation'),
                 $messages
-            ));
+            );
         }
 
         BlockPostIdTranslation::normalizePostContent($translationId);
 
+        // A copy is untranslated text: it stays a draft whatever the setting.
+        if (! $client instanceof SourceCopyClient && self::publishesTranslations()) {
+            self::publishTranslations($container, $targetLang);
+        }
+
+        // Reviewed in the background, so the editor opens without waiting for
+        // it. A copy of the source has nothing to review.
+        if (! $client instanceof SourceCopyClient && TranslationAudit::isEnabled()) {
+            TranslationAudit::queue($translationId);
+        }
+
         return $translationId;
+    }
+
+    public const publishOption = 'gds_content_translation_publish';
+
+    /**
+     * Whether AI translations go live at once: a translation gets its
+     * original's status (published when the original is), and patterns
+     * are always published, since a draft pattern shows nothing on a page.
+     */
+    public static function publishesTranslations(): bool
+    {
+        return (bool) apply_filters('gds_content_translation_publish_translations', (bool) get_option(self::publishOption, true));
+    }
+
+    /**
+     * Publish the new drafts Polylang Pro saved for the posts in the export:
+     * the post itself and what it links to, such as its patterns. A
+     * translation that was not a draft is left as it is.
+     */
+    private static function publishTranslations(PLL_Export_Container $container, object $targetLang): void
+    {
+        foreach ($container as $data) {
+            if (! $data instanceof Data) {
+                continue;
+            }
+
+            foreach (array_keys($data->get()['post'] ?? []) as $sourceId) {
+                $source = get_post((int) $sourceId);
+                $translationId = (int) pll_get_post((int) $sourceId, $targetLang->slug);
+
+                if (! $source || $translationId <= 0 || get_post_status($translationId) !== 'draft') {
+                    continue;
+                }
+
+                if ($source->post_type === 'wp_block' || $source->post_status === 'publish') {
+                    wp_update_post(['ID' => $translationId, 'post_status' => 'publish']);
+                }
+            }
+        }
+    }
+
+    /**
+     * The errors only. Polylang Pro 3.9 also reports how many characters
+     * DeepL billed, as an "info" entry in the same WP_Error.
+     */
+    private static function withoutNotices(WP_Error $result): WP_Error
+    {
+        $errors = new WP_Error;
+
+        foreach ($result->get_error_codes() as $code) {
+            if (in_array($result->get_error_data($code), ['info', 'success'], true)) {
+                continue;
+            }
+
+            foreach ($result->get_error_messages($code) as $message) {
+                $errors->add($code, $message);
+            }
+        }
+
+        return $errors;
     }
 
     /**
