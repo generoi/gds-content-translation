@@ -12,7 +12,7 @@ import type { ScreenContextValue } from '../list/screen-context';
 
 /** What the actions need from the screen; all stable, so the actions are built once. */
 export type ActionOps = Pick< ScreenContextValue, 'run' | 'refresh' | 'followJobs' >;
-import { translationLanguages } from '../settings';
+import { getSettings, translationLanguages } from '../settings';
 import type { Settings } from '../settings';
 import type { Cell, Row } from '../types';
 import { notifySuccess } from '../ui/notify';
@@ -54,6 +54,7 @@ const ACTION_IDS: Record< LanguageMode, string > = {
 };
 
 function LanguageModal( { items, closeModal, onActionPerformed, mode, screen }: RenderModalProps< Row > & { mode: LanguageMode; screen: ActionOps } ) {
+	const settings = getSettings();
 	const languages = translationLanguages();
 	const all = languages.map( ( language ) => language.slug );
 	const [ choice, setChoice ] = useState( 'all' );
@@ -73,7 +74,8 @@ function LanguageModal( { items, closeModal, onActionPerformed, mode, screen }: 
 				count( mode, items, all )
 			),
 		},
-		...languages.map( ( language ) => ( {
+		// Only the languages the action does something in.
+		...languages.filter( ( language ) => count( mode, items, [ language.slug ] ) > 0 ).map( ( language ) => ( {
 			value: language.slug,
 			/* translators: 1: language name, 2: number of translations */
 			label: sprintf( __( '%1$s (%2$d)', 'gds-content-translation' ), language.name, count( mode, items, [ language.slug ] ) ),
@@ -81,7 +83,9 @@ function LanguageModal( { items, closeModal, onActionPerformed, mode, screen }: 
 	];
 
 	const descriptions: Record< LanguageMode, string > = {
-		translate: __( 'Machine-translates the originals into the languages they are missing, as drafts. They are created in the background, one at a time: you can keep working, and the progress shows at the bottom of the screen.', 'gds-content-translation' ),
+		translate: settings.publish
+			? __( 'Machine-translates the originals into the languages they are missing. A translation is published when its original is, and reviewed by AI. They are created in the background, one at a time: you can keep working.', 'gds-content-translation' )
+			: __( 'Machine-translates the originals into the languages they are missing, as drafts, and reviews them by AI. They are created in the background, one at a time: you can keep working.', 'gds-content-translation' ),
 		review: __( 'AI compares each translation’s content with the original, in the background. Open remarks show in the table and on each review page.', 'gds-content-translation' ),
 		proofread: __( 'Marks the translations as proofread.', 'gds-content-translation' ),
 		unproofread: __( 'Marks the translations as not proofread.', 'gds-content-translation' ),
@@ -124,7 +128,7 @@ function LanguageModal( { items, closeModal, onActionPerformed, mode, screen }: 
 	return (
 		<div className="gds-ct__modal">
 			<p>{ descriptions[ mode ] }</p>
-			{ languages.length > 1 && (
+			{ options.length > 2 && (
 				<RadioControl label={ __( 'Languages', 'gds-content-translation' ) } selected={ choice } options={ options } onChange={ ( value: string ) => setChoice( value ) } />
 			) }
 			{ needsConfirm && (

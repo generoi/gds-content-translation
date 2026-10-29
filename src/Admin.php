@@ -377,7 +377,7 @@ class Admin
         wp_enqueue_script(
             'gds-content-translation',
             plugins_url('assets/admin.js', GDS_CONTENT_TRANSLATION_FILE),
-            [],
+            ['wp-api-fetch'],
             self::assetVersion('assets/admin.js'),
             true
         );
@@ -385,9 +385,20 @@ class Admin
         wp_localize_script('gds-content-translation', 'contentTranslationStatus', [
             'ajaxUrl' => admin_url('admin-ajax.php'),
             'nonce' => wp_create_nonce('gds_content_translation'),
+            'restNamespace' => Rest\StatusController::namespace,
+            'linkTranslate' => [
+                'translating' => __('Translating…', 'gds-content-translation'),
+                'queued' => __('Queued…', 'gds-content-translation'),
+                /* translators: %s: language name */
+                'done' => __('Translated. The link now goes to the %s page.', 'gds-content-translation'),
+                'edit' => __('Edit', 'gds-content-translation'),
+                'review' => __('AI review', 'gds-content-translation'),
+                /* translators: %s: error message */
+                'failed' => __('Translation failed: %s', 'gds-content-translation'),
+            ],
             'proofread' => [
-                'checked' => __('Marked as proof read.', 'gds-content-translation'),
-                'unchecked' => __('Marked as not proof read.', 'gds-content-translation'),
+                'checked' => __('Marked as proofread.', 'gds-content-translation'),
+                'unchecked' => __('Marked as not proofread.', 'gds-content-translation'),
                 'failed' => __('Could not save. Try again.', 'gds-content-translation'),
                 'expired' => __('Your session has expired. Reload the page and try again.', 'gds-content-translation'),
             ],
@@ -461,6 +472,7 @@ class Admin
             'machineTranslation' => MachineTranslation::isAvailable(),
             'copyTranslation' => MachineTranslation::isCopyAvailable(),
             'review' => TranslationAudit::isEnabled(),
+            'publish' => MachineTranslation::publishesTranslations(),
             // One nonce per screen for the create and review links: their
             // handlers check the post, language and capability themselves.
             'createUrl' => MachineTranslation::getActionBaseUrl(),

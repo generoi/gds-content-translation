@@ -51,7 +51,7 @@ class StatusActionsTest extends RestTestCase
         $data = $this->action('proofread', [$first['en'], $second['en'], $untranslated], ['proofread' => true]);
 
         $this->assertTrue($data['ok']);
-        $this->assertSame('2 translations marked as proof read.', $data['message']);
+        $this->assertSame('2 translations marked as proofread.', $data['message']);
         $this->assertSame('1', get_post_meta($first['fi'], GDS_CONTENT_TRANSLATION_META_KEY, true));
         $this->assertSame('1', get_post_meta($second['fi'], GDS_CONTENT_TRANSLATION_META_KEY, true));
         // Never the original.

@@ -125,13 +125,14 @@ final class AuditReview
             default => false,
         };
 
-        if ($result instanceof \WP_Error) {
-            Notice::flash('error', $result->get_error_message());
-        } elseif ($result === false) {
-            Notice::flash('error', __('This remark could not be found.', 'gds-content-translation'));
-        }
+        // Back at the remarks, with what happened said right above them.
+        $done = match (true) {
+            $result instanceof \WP_Error => 'error:'.$result->get_error_code(),
+            $result === false => 'error:missing',
+            default => $operation,
+        };
 
-        wp_safe_redirect(self::getUrl($postId, $view).'#gds-ct-remark-'.$remarkId);
+        wp_safe_redirect(add_query_arg('done', $done, self::getUrl($postId, $view)).'#gds-ct-remarks');
         exit;
     }
 
@@ -230,14 +231,7 @@ final class AuditReview
                 <span class="spinner is-active" aria-hidden="true"></span>
                 <strong>
                     <?php
-                    echo esc_html(sprintf(
-                        $published
-                            /* translators: %s: language name */
-                            ? __('The %s translation is published. The AI review is running, usually for under a minute.', 'gds-content-translation')
-                            /* translators: %s: language name */
-                            : __('The %s translation is saved as a draft. The AI review is running, usually for under a minute.', 'gds-content-translation'),
-                        $languageName
-                    ));
+                    echo esc_html__('The AI review is running, usually for under a minute.', 'gds-content-translation');
         ?>
                 </strong>
                 <?php if (count($progress) === 2) { ?>
@@ -452,6 +446,7 @@ final class AuditReview
         }
 
         ?>
+        <?php self::renderActionMessage(); ?>
         <h2 class="gds-content-translation-review__counts">
             <?php
             echo esc_html($counts !== [] ? implode(' · ', $counts) : __('No open remarks', 'gds-content-translation'));
@@ -620,13 +615,16 @@ final class AuditReview
         $missing = [];
 
         foreach (array_unique($matches[1]) as $href) {
-            $url = str_starts_with($href, '/') ? home_url($href) : $href;
+            // The site's own address: Polylang turns home_url() into the
+            // admin's language (…/en), where the original's path is no page.
+            $home = untrailingslashit((string) get_option('home'));
+            $url = str_starts_with($href, '/') ? $home.$href : $href;
 
-            if (! str_starts_with($url, home_url())) {
+            if (! str_starts_with($url, $home)) {
                 continue;
             }
 
-            $targetId = url_to_postid($url);
+            $targetId = self::postIdOfUrl($url);
 
             if ($targetId <= 0 || $targetId === $post->ID || ! pll_is_translated_post_type(get_post_type($targetId))) {
                 continue;
@@ -669,23 +667,88 @@ final class AuditReview
             )); ?></p>
             <ul class="gds-content-translation-review__links-list">
                 <?php foreach ($missing as $link) { ?>
-                    <li>
-                        <span title="<?php echo esc_attr($link['href']); ?>"><?php echo esc_html(get_the_title($link['sourceId'])); ?></span>
+                    <li data-gds-ct-link-row>
+                        <span class="gds-content-translation-review__link-title" title="<?php echo esc_attr($link['href']); ?>"><?php echo esc_html(get_the_title($link['sourceId'])); ?></span>
                         <?php if ($canTranslate) { ?>
-                            <a class="button button-small" target="_blank" rel="noopener noreferrer" href="<?php echo esc_url(MachineTranslation::getActionBaseUrl((string) get_post_type($link['sourceId'])).'&'.http_build_query(['source_id' => $link['sourceId'], 'lang' => $language->slug, 'mode' => MachineTranslation::modeAi], '', '&')); ?>">
+                            <?php // AI translates the page in the background, the way the status screen does; this row follows it.?>
+                            <button
+                                type="button"
+                                class="button button-small gds-content-translation-review__link-translate"
+                                data-source-id="<?php echo esc_attr((string) $link['sourceId']); ?>"
+                                data-lang="<?php echo esc_attr($language->slug); ?>"
+                                data-language-name="<?php echo esc_attr($languageName); ?>"
+                            >
                                 <?php echo esc_html(sprintf(
                                     /* translators: %s: language name */
                                     __('Translate into %s', 'gds-content-translation'),
                                     $languageName
                                 )); ?>
-                                <span class="screen-reader-text"><?php echo esc_html__('(opens in a new tab)', 'gds-content-translation'); ?></span>
-                            </a>
+                                <span class="screen-reader-text"><?php echo esc_html(get_the_title($link['sourceId'])); ?></span>
+                            </button>
                         <?php } ?>
+                        <span class="gds-content-translation-review__link-status" role="status"></span>
                     </li>
                 <?php } ?>
             </ul>
         </div>
         <?php
+    }
+
+    /**
+     * The post an internal URL points to, whatever language the admin bar
+     * filters the admin by: with "English" chosen there, url_to_postid()
+     * looks only among English posts and finds no Finnish page.
+     */
+    private static function postIdOfUrl(string $url): int
+    {
+        $polylang = PLL();
+        $current = $polylang->curlang ?? null;
+        $filter = property_exists($polylang, 'filter_lang') ? $polylang->filter_lang : null;
+        $polylang->curlang = null;
+
+        if (property_exists($polylang, 'filter_lang')) {
+            $polylang->filter_lang = null;
+        }
+
+        try {
+            return (int) url_to_postid($url);
+        } finally {
+            $polylang->curlang = $current;
+
+            if (property_exists($polylang, 'filter_lang')) {
+                $polylang->filter_lang = $filter;
+            }
+        }
+    }
+
+    /**
+     * What the last remark action did, above the remarks it was taken in.
+     */
+    private static function renderActionMessage(): void
+    {
+        $done = isset($_GET['done']) && is_string($_GET['done']) ? sanitize_text_field(wp_unslash($_GET['done'])) : '';
+        $messages = [
+            'use' => __('The suggestion is saved to the translation.', 'gds-content-translation'),
+            'edit' => __('Your text is saved to the translation.', 'gds-content-translation'),
+            'fixed' => __('Marked as fixed.', 'gds-content-translation'),
+            'dismiss' => __('Marked as not an issue.', 'gds-content-translation'),
+            'reopen' => __('The remark is open again.', 'gds-content-translation'),
+            'error:gds_ct_audit_changed' => __('Not saved: this text was changed in the editor after the review. Make the change there, or mark the remark as fixed.', 'gds-content-translation'),
+            'error:gds_ct_audit_locked' => __('Not saved: someone has this translation open in the editor. Make the change there, or try again when it is closed.', 'gds-content-translation'),
+        ];
+
+        echo '<div id="gds-ct-remarks" class="gds-content-translation-review__done" role="status">';
+
+        if ($done !== '') {
+            $error = str_starts_with($done, 'error:');
+            printf(
+                '<div class="notice notice-%1$s inline"><p>%2$s</p></div>',
+                $error ? 'error' : 'success',
+                esc_html($messages[$done] ?? ($error ? __('That did not work. Reload the page and try again.', 'gds-content-translation') : ''))
+            );
+        }
+
+        echo '</div>';
     }
 
     /**

@@ -71,8 +71,8 @@ final class Proofread extends BaseAction
 
         return $args['proofread']
             /* translators: %d: number of translations */
-            ? sprintf(_n('%d translation marked as proof read.', '%d translations marked as proof read.', $changed, 'gds-content-translation'), $changed)
+            ? sprintf(_n('%d translation marked as proofread.', '%d translations marked as proofread.', $changed, 'gds-content-translation'), $changed)
             /* translators: %d: number of translations */
-            : sprintf(_n('%d translation marked as not proof read.', '%d translations marked as not proof read.', $changed, 'gds-content-translation'), $changed);
+            : sprintf(_n('%d translation marked as not proofread.', '%d translations marked as not proofread.', $changed, 'gds-content-translation'), $changed);
     }
 }

@@ -22,11 +22,14 @@ import { addQueryArgs } from '@wordpress/url';
 import { getSettings, languageCode } from '../settings';
 import type { Cell, Row } from '../types';
 import { celebrate } from '../ui/celebration';
-import { notifyError, notifySuccess } from '../ui/notify';
+import { dismissNotice, notifyError, notifySuccess } from '../ui/notify';
 import { cellKey, useScreen } from '../list/screen-context';
 import { AuditBadge } from './audit-indicator';
 
 const MISSING: Cell = { state: 'missing', postId: 0 };
+
+/** The Undo of a cell's trash, taken back once the cell changes another way. */
+const undoNoticeId = ( key: string ): string => `gds-ct-undo-${ key }`;
 
 /** Opens a menu item's page: menu items are buttons, not links. */
 function go( url: string, newTab: boolean ): void {
@@ -165,13 +168,33 @@ function TranslatedCell( { item, slug, cell, about }: CellProps ) {
 								} );
 							},
 						},
-					] );
+					], undoNoticeId( key ) );
 				}
 
 				screen.focusAfterRefresh( key );
 				screen.refresh( true );
 			} )
 			.catch( () => undefined )
+			.finally( () => screen.setBusy( key, null ) );
+	};
+
+	// The review runs in the background; the cell says Reviewing… until it is done.
+	const runReview = () => {
+		screen.setBusy( key, 'saving' );
+		screen
+			.run( 'review', [ item.sourceId ], { languages: [ slug ] } )
+			.then( ( response ) => {
+				if ( ! response.ok ) {
+					throw new Error( response.results[ 0 ]?.message || response.message );
+				}
+
+				screen.patchRow( item.sourceId, ( row ) => ( {
+					...row,
+					languages: { ...row.languages, [ slug ]: { ...cell, audit: { status: 'pending', errors: 0, other: 0, edited: false, error: '', url: cell.audit?.url ?? '' } } },
+				} ) );
+				screen.refresh( true );
+			} )
+			.catch( ( caught: unknown ) => notifyError( caught instanceof Error && caught.message ? caught.message : __( 'The review could not be started.', 'gds-content-translation' ) ) )
 			.finally( () => screen.setBusy( key, null ) );
 	};
 
@@ -239,7 +262,7 @@ function TranslatedCell( { item, slug, cell, about }: CellProps ) {
 							</MenuItem>
 						) }
 						{ settings.review && audit && ( audit.status === 'none' || audit.status === 'failed' || audit.status === 'stuck' ) && (
-							<MenuItem onClick={ () => { close(); go( addQueryArgs( settings.reviewRunUrl, { post: cell.postId } ), false ); } }>
+							<MenuItem onClick={ () => { close(); runReview(); } }>
 								{ audit.status === 'none' ? __( 'Run AI review', 'gds-content-translation' ) : __( 'Run AI review again', 'gds-content-translation' ) }
 							</MenuItem>
 						) }
@@ -284,6 +307,8 @@ function MissingCell( { item, slug, name, cell, about }: CellProps ) {
 	const [ confirmDelete, setConfirmDelete ] = useState( false );
 
 	const change = ( action: 'restore-translation' | 'delete-translation' ) => {
+		// Restored or deleted here: an Undo of its trash has nothing left to undo.
+		dismissNotice( undoNoticeId( key ) );
 		screen.setBusy( key, 'saving' );
 		screen
 			.run( action, [ item.sourceId ], { languages: [ slug ] } )
@@ -385,7 +410,14 @@ function MissingCell( { item, slug, name, cell, about }: CellProps ) {
 
 	// Something is happening: one chip of the same size, whatever it says.
 	if ( busy === 'creating' || busy === 'translating' || job?.status === 'running' || job?.status === 'queued' ) {
-		const label = job?.status === 'queued' ? __( 'Queued', 'gds-content-translation' ) : __( 'Translating…', 'gds-content-translation' );
+		let label: string = __( 'Translating…', 'gds-content-translation' );
+
+		if ( busy === 'creating' ) {
+			// A copy: nothing is translated.
+			label = __( 'Creating…', 'gds-content-translation' );
+		} else if ( job?.status === 'queued' ) {
+			label = __( 'Queued', 'gds-content-translation' );
+		}
 
 		return (
 			<span className="gds-ct__state gds-ct__state--working" role="status">

@@ -336,7 +336,10 @@ class TranslationAuditTest extends AdminActionTestCase
         $this->submit('gds_ct_audit_remark', ['post' => (string) $ids['fi'], 'remark' => '2', 'operation' => 'use']);
         $location = $this->submit('gds_ct_audit_remark', ['post' => (string) $ids['fi'], 'remark' => '1', 'operation' => 'edit', 'text' => 'Hei <strong>koko</strong> maailma', 'view' => 'remarks']);
 
-        $this->assertStringEndsWith('&view=remarks#gds-ct-remark-1', $location);
+        // Back at the remarks, with what was done said above them.
+        $this->assertStringContainsString('view=remarks', $location);
+        $this->assertStringContainsString('done=edit', $location);
+        $this->assertStringEndsWith('#gds-ct-remarks', $location);
         $this->assertSame(['Hei <strong>koko</strong> maailma', 'Lue lisää', 'Lue lisää'], TranslationAudit::strings(get_post($ids['fi'])->post_content));
 
         $review = TranslationAudit::get($ids['fi']);

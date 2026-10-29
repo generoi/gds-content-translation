@@ -247,7 +247,7 @@ final class TranslationActions
         }
 
         if ($language === pll_default_language('slug')) {
-            return new WP_Error('gds_ct_not_translation', __('Only translations can be marked as proof read.', 'gds-content-translation'));
+            return new WP_Error('gds_ct_not_translation', __('Only translations can be marked as proofread.', 'gds-content-translation'));
         }
 
         if ($proofread) {

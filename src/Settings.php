@@ -28,7 +28,6 @@ class Settings
     {
         add_action('admin_menu', [$this, 'registerMenu'], 21);
         add_action('admin_init', [$this, 'handleSave']);
-        add_action('admin_init', [$this, 'handleAuditSave']);
         add_action('admin_init', [self::class, 'ensureOption']);
     }
 
@@ -60,6 +59,10 @@ class Settings
         );
     }
 
+    /**
+     * One form for the whole page: the post types on the status screen, how
+     * AI translations are created, and the AI review.
+     */
     public function handleSave(): void
     {
         if (! isset($_POST['gds_ct_settings_submit'])) {
@@ -78,29 +81,9 @@ class Settings
             : [];
 
         $visibleSlugs = array_values(array_intersect($visibleSlugs, $allSlugs));
-        $hiddenSlugs = array_values(array_diff($allSlugs, $visibleSlugs));
+        update_option(self::optionKey, array_values(array_diff($allSlugs, $visibleSlugs)));
 
-        update_option(self::optionKey, $hiddenSlugs);
-
-        add_settings_error(
-            'gds_content_translation',
-            'settings_updated',
-            __('Settings saved.', 'gds-content-translation'),
-            'success'
-        );
-    }
-
-    public function handleAuditSave(): void
-    {
-        if (! isset($_POST['gds_ct_audit_submit'])) {
-            return;
-        }
-
-        if (! current_user_can('manage_options')) {
-            return;
-        }
-
-        check_admin_referer('gds_content_translation_audit_settings');
+        update_option(MachineTranslation::publishOption, isset($_POST['gds_ct_publish']));
 
         $model = Request::key($_POST, 'gds_ct_audit_model');
         $language = Request::key($_POST, 'gds_ct_audit_language');
@@ -111,14 +94,8 @@ class Settings
             'language' => isset(TranslationAudit::remarkLanguages()[$language]) ? $language : 'target',
             'notes' => isset($_POST['gds_ct_audit_notes']),
         ]);
-        update_option(MachineTranslation::publishOption, isset($_POST['gds_ct_publish']));
 
-        add_settings_error(
-            'gds_content_translation',
-            'audit_settings_updated',
-            __('Settings saved.', 'gds-content-translation'),
-            'success'
-        );
+        add_settings_error('gds_content_translation', 'settings_updated', __('Settings saved.', 'gds-content-translation'), 'success');
     }
 
     public function renderPage(): void
@@ -129,73 +106,7 @@ class Settings
 
         $postTypes = self::getAllPostTypes();
         $visibleSlugs = self::getVisiblePostTypeSlugs();
-
-        ?>
-        <div class="wrap gds-content-translation">
-            <h1><?php echo esc_html__('Content translation settings', 'gds-content-translation'); ?></h1>
-
-            <?php settings_errors('gds_content_translation'); ?>
-
-            <p>
-                <?php echo esc_html__('Choose which post types appear on the Content translation status screen.', 'gds-content-translation'); ?>
-            </p>
-
-            <form method="post" action="">
-                <?php wp_nonce_field('gds_content_translation_settings'); ?>
-
-                <?php if ($postTypes === []) { ?>
-                    <p><?php echo esc_html__('No translatable post types are configured in Polylang.', 'gds-content-translation'); ?></p>
-                <?php } else { ?>
-                    <table class="form-table" role="presentation">
-                        <tbody>
-                            <tr>
-                                <th scope="row">
-                                    <?php echo esc_html__('Post types', 'gds-content-translation'); ?>
-                                </th>
-                                <td>
-                                    <fieldset>
-                                        <legend class="screen-reader-text">
-                                            <?php echo esc_html__('Post types', 'gds-content-translation'); ?>
-                                        </legend>
-                                        <?php foreach ($postTypes as $slug => $postType) { ?>
-                                            <label style="display: block; margin-bottom: 0.5rem;">
-                                                <input
-                                                    type="checkbox"
-                                                    name="gds_ct_visible_post_types[]"
-                                                    value="<?php echo esc_attr($slug); ?>"
-                                                    <?php checked(in_array($slug, $visibleSlugs, true)); ?>
-                                                >
-                                                <?php echo esc_html($postType['label']); ?>
-                                                <code><?php echo esc_html($slug); ?></code>
-                                            </label>
-                                        <?php } ?>
-                                        <p class="description">
-                                            <?php echo esc_html__('Unchecked post types are hidden from the translation status tabs. Developers can still exclude types via the gds_content_translation_excluded_post_types filter.', 'gds-content-translation'); ?>
-                                        </p>
-                                    </fieldset>
-                                </td>
-                            </tr>
-                        </tbody>
-                    </table>
-
-                    <?php submit_button(__('Save settings', 'gds-content-translation'), 'primary', 'gds_ct_settings_submit'); ?>
-                <?php } ?>
-            </form>
-
-            <?php $this->renderAuditSettings(); ?>
-
-            <p>
-                <a href="<?php echo esc_url(Admin::getPageUrl()); ?>">
-                    <?php echo esc_html__('← Back to Content translation status', 'gds-content-translation'); ?>
-                </a>
-            </p>
-        </div>
-        <?php
-    }
-
-    private function renderAuditSettings(): void
-    {
-        $settings = TranslationAudit::settings();
+        $audit = TranslationAudit::settings();
         $keySource = TranslationAudit::keySource();
         $keyMessages = [
             'environment' => __('The Claude API key is read from the ANTHROPIC_API_KEY environment variable.', 'gds-content-translation'),
@@ -204,73 +115,111 @@ class Settings
         ];
 
         ?>
-        <h2><?php echo esc_html__('AI review of machine translations', 'gds-content-translation'); ?></h2>
-        <p>
-            <?php echo esc_html__('When a translation is created with AI translation, Claude compares its post content with the original in the background and leaves remarks on the status screen. The translation itself is not changed.', 'gds-content-translation'); ?>
-        </p>
+        <div class="wrap gds-content-translation">
+            <h1><?php echo esc_html__('Content translation settings', 'gds-content-translation'); ?></h1>
 
-        <?php if ($keySource === '') { ?>
-            <div class="notice notice-warning inline"><p>
-                <?php echo esc_html__('No Claude API key found. Set ANTHROPIC_API_KEY in the site environment (.env) to turn on the AI review.', 'gds-content-translation'); ?>
-            </p></div>
-        <?php } else { ?>
-            <p class="description"><?php echo esc_html($keyMessages[$keySource]); ?></p>
-        <?php } ?>
+            <?php settings_errors('gds_content_translation'); ?>
 
-        <form method="post" action="">
-            <?php wp_nonce_field('gds_content_translation_audit_settings'); ?>
-            <table class="form-table" role="presentation">
-                <tbody>
-                    <tr>
-                        <th scope="row"><?php echo esc_html__('AI translations', 'gds-content-translation'); ?></th>
-                        <td>
-                            <label>
-                                <input type="checkbox" name="gds_ct_publish" value="1" <?php checked((bool) get_option(MachineTranslation::publishOption, true)); ?>>
-                                <?php echo esc_html__('Publish AI translations of published originals at once, and the patterns they use', 'gds-content-translation'); ?>
-                            </label>
-                            <p class="description"><?php echo esc_html__('Off: every new translation is a draft until someone publishes it. Copy original always creates drafts.', 'gds-content-translation'); ?></p>
-                        </td>
-                    </tr>
-                    <tr>
-                        <th scope="row"><?php echo esc_html__('AI review', 'gds-content-translation'); ?></th>
-                        <td>
-                            <label>
-                                <input type="checkbox" name="gds_ct_audit_enabled" value="1" <?php checked($settings['enabled']); ?>>
-                                <?php echo esc_html__('Review machine translations with Claude', 'gds-content-translation'); ?>
-                            </label>
-                            <br>
-                            <label>
-                                <input type="checkbox" name="gds_ct_audit_notes" value="1" <?php checked($settings['notes']); ?>>
-                                <?php echo esc_html__('Add each remark as a note on its block in the editor', 'gds-content-translation'); ?>
-                            </label>
-                        </td>
-                    </tr>
-                    <tr>
-                        <th scope="row"><label for="gds-ct-audit-model"><?php echo esc_html__('Model', 'gds-content-translation'); ?></label></th>
-                        <td>
-                            <select id="gds-ct-audit-model" name="gds_ct_audit_model">
-                                <?php foreach (TranslationAudit::models() as $model => $label) { ?>
-                                    <option value="<?php echo esc_attr($model); ?>" <?php selected($settings['model'], $model); ?>><?php echo esc_html($label); ?></option>
+            <form method="post" action="">
+                <?php wp_nonce_field('gds_content_translation_settings'); ?>
+
+                <h2><?php echo esc_html__('Status screen', 'gds-content-translation'); ?></h2>
+                <table class="form-table" role="presentation">
+                    <tbody>
+                        <tr>
+                            <th scope="row"><?php echo esc_html__('Post types', 'gds-content-translation'); ?></th>
+                            <td>
+                                <?php if ($postTypes === []) { ?>
+                                    <p><?php echo esc_html__('No translatable post types are configured in Polylang.', 'gds-content-translation'); ?></p>
+                                <?php } else { ?>
+                                    <fieldset>
+                                        <legend class="screen-reader-text"><?php echo esc_html__('Post types', 'gds-content-translation'); ?></legend>
+                                        <?php foreach ($postTypes as $slug => $postType) { ?>
+                                            <label style="display: block; margin-bottom: 0.5rem;">
+                                                <input type="checkbox" name="gds_ct_visible_post_types[]" value="<?php echo esc_attr($slug); ?>" <?php checked(in_array($slug, $visibleSlugs, true)); ?>>
+                                                <?php echo esc_html($postType['label']); ?>
+                                                <code><?php echo esc_html($slug); ?></code>
+                                            </label>
+                                        <?php } ?>
+                                        <p class="description"><?php echo esc_html__('Each checked post type gets a tab on the Content translation status screen.', 'gds-content-translation'); ?></p>
+                                    </fieldset>
                                 <?php } ?>
-                            </select>
-                        </td>
-                    </tr>
-                    <tr>
-                        <th scope="row"><label for="gds-ct-audit-language"><?php echo esc_html__('Language of the remarks', 'gds-content-translation'); ?></label></th>
-                        <td>
-                            <select id="gds-ct-audit-language" name="gds_ct_audit_language">
-                                <?php foreach (TranslationAudit::remarkLanguages() as $language => $label) { ?>
-                                    <option value="<?php echo esc_attr($language); ?>" <?php selected($settings['language'], $language); ?>><?php echo esc_html($label); ?></option>
-                                <?php } ?>
-                            </select>
-                            <p class="description"><?php echo esc_html__('The translation’s language suits a translator working into it.', 'gds-content-translation'); ?></p>
-                        </td>
-                    </tr>
-                </tbody>
-            </table>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
 
-            <?php submit_button(__('Save AI review settings', 'gds-content-translation'), 'primary', 'gds_ct_audit_submit'); ?>
-        </form>
+                <h2><?php echo esc_html__('AI translation', 'gds-content-translation'); ?></h2>
+                <table class="form-table" role="presentation">
+                    <tbody>
+                        <tr>
+                            <th scope="row"><?php echo esc_html__('Publishing', 'gds-content-translation'); ?></th>
+                            <td>
+                                <label>
+                                    <input type="checkbox" name="gds_ct_publish" value="1" <?php checked(MachineTranslation::publishesTranslations()); ?>>
+                                    <?php echo esc_html__('Publish an AI translation when its original is published, and the patterns it uses', 'gds-content-translation'); ?>
+                                </label>
+                                <p class="description"><?php echo esc_html__('Unchecked, every new translation is a draft until someone publishes it. Copy original always creates a draft.', 'gds-content-translation'); ?></p>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <h2><?php echo esc_html__('AI review', 'gds-content-translation'); ?></h2>
+                <p><?php echo esc_html__('After an AI translation, Claude compares its content and ACF text fields with the original, in the background. Its remarks show on the status screen, on the review page and as notes in the editor; the translation only changes when someone uses a suggestion.', 'gds-content-translation'); ?></p>
+                <?php if ($keySource === '') { ?>
+                    <div class="notice notice-warning inline"><p><?php echo esc_html__('No Claude API key found. Set ANTHROPIC_API_KEY in the site environment (.env) to turn on the AI review.', 'gds-content-translation'); ?></p></div>
+                <?php } else { ?>
+                    <p class="description"><?php echo esc_html($keyMessages[$keySource]); ?></p>
+                <?php } ?>
+                <table class="form-table" role="presentation">
+                    <tbody>
+                        <tr>
+                            <th scope="row"><?php echo esc_html__('AI review', 'gds-content-translation'); ?></th>
+                            <td>
+                                <label>
+                                    <input type="checkbox" name="gds_ct_audit_enabled" value="1" <?php checked($audit['enabled']); ?>>
+                                    <?php echo esc_html__('Review AI translations', 'gds-content-translation'); ?>
+                                </label>
+                                <br>
+                                <label>
+                                    <input type="checkbox" name="gds_ct_audit_notes" value="1" <?php checked($audit['notes']); ?>>
+                                    <?php echo esc_html__('Add each remark as a note on its block in the editor', 'gds-content-translation'); ?>
+                                </label>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th scope="row"><label for="gds-ct-audit-model"><?php echo esc_html__('Model', 'gds-content-translation'); ?></label></th>
+                            <td>
+                                <select id="gds-ct-audit-model" name="gds_ct_audit_model">
+                                    <?php foreach (TranslationAudit::models() as $model => $label) { ?>
+                                        <option value="<?php echo esc_attr($model); ?>" <?php selected($audit['model'], $model); ?>><?php echo esc_html($label); ?></option>
+                                    <?php } ?>
+                                </select>
+                                <p class="description"><?php echo esc_html__('Sonnet suits most sites; Opus is more thorough and costs about twice as much, Haiku is cheaper and misses more.', 'gds-content-translation'); ?></p>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th scope="row"><label for="gds-ct-audit-language"><?php echo esc_html__('Language of the remarks', 'gds-content-translation'); ?></label></th>
+                            <td>
+                                <select id="gds-ct-audit-language" name="gds_ct_audit_language">
+                                    <?php foreach (TranslationAudit::remarkLanguages() as $language => $label) { ?>
+                                        <option value="<?php echo esc_attr($language); ?>" <?php selected($audit['language'], $language); ?>><?php echo esc_html($label); ?></option>
+                                    <?php } ?>
+                                </select>
+                                <p class="description"><?php echo esc_html__('The translation’s language suits a translator working into it.', 'gds-content-translation'); ?></p>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <?php submit_button(__('Save settings', 'gds-content-translation'), 'primary', 'gds_ct_settings_submit'); ?>
+            </form>
+
+            <p>
+                <a href="<?php echo esc_url(Admin::getPageUrl()); ?>"><?php echo esc_html__('← Back to Content translation status', 'gds-content-translation'); ?></a>
+            </p>
+        </div>
         <?php
     }
 

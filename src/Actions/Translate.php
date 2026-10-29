@@ -65,7 +65,8 @@ final class Translate extends BaseAction
             ? sprintf(_n('%d AI translation queued. It is created in the background.', '%d AI translations queued. They are created in the background, one at a time.', $queued, 'gds-content-translation'), $queued)
             : __('No AI translation was queued.', 'gds-content-translation');
 
-        if ($exists > 0) {
+        // Only worth saying when it is why nothing was queued.
+        if ($exists > 0 && $queued === 0) {
             /* translators: %d: number of translations */
             $message .= ' '.sprintf(_n('%d translation exists already.', '%d translations exist already.', $exists, 'gds-content-translation'), $exists);
         }

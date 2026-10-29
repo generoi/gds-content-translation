@@ -11,15 +11,20 @@ export interface NoticeAction {
 
 let serial = 0;
 
-export function notifySuccess( message: string, actions: NoticeAction[] = [] ): void {
+export function notifySuccess( message: string, actions: NoticeAction[] = [], id = '' ): void {
 	serial += 1;
 	void dispatch( noticesStore ).createSuccessNotice( message, {
-		id: `gds-ct-${ serial }`,
+		id: id || `gds-ct-${ serial }`,
 		type: 'snackbar',
 		actions,
 		// An Undo stays until it is used or dismissed: a trash is not undone from anywhere else.
 		explicitDismiss: actions.length > 0,
 	} );
+}
+
+/** Takes back a notice whose action no longer applies, such as an Undo. */
+export function dismissNotice( id: string ): void {
+	void dispatch( noticesStore ).removeNotice( id );
 }
 
 /** Errors stay until dismissed: they say what did not happen. */

@@ -64,7 +64,10 @@ export function buildFields( settings: Settings ): Field< Row >[] {
 			enableSorting: false,
 			enableHiding: true,
 			elements: kinds.map( ( kind ) => ( { value: kind, label: labels[ kind ] } ) ),
-			filterBy: { operators: [ 'isAny' ] },
+			// Filtered by the counts above the table, in one click; DataViews'
+			// own filter took a language first and a state second, and did
+			// nothing in between.
+			filterBy: false,
 		} );
 	}
 

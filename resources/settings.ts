@@ -24,6 +24,8 @@ export interface Settings {
 	machineTranslation: boolean;
 	copyTranslation: boolean;
 	review: boolean;
+	/** AI translations are published when their original is. */
+	publish: boolean;
 	createUrl: string;
 	reviewRunUrl: string;
 	pageUrl: string;
@@ -44,6 +46,7 @@ const fallback: Settings = {
 	machineTranslation: false,
 	copyTranslation: false,
 	review: false,
+	publish: false,
 	createUrl: '',
 	reviewRunUrl: '',
 	pageUrl: '',

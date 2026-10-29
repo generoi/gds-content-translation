@@ -228,3 +228,32 @@
 .gds-content-translation-review__links-list li span {
   flex: 1;
 }
+
+.gds-content-translation-review__links-list li {
+  flex-wrap: wrap;
+  max-width: 48rem;
+}
+
+.gds-content-translation-review__link-title {
+  flex: 0 0 14rem;
+}
+
+.gds-content-translation-review__link-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 24px;
+}
+
+.gds-content-translation-review__link-status .spinner {
+  float: none;
+  margin: 0;
+}
+
+[data-state='done'] .gds-content-translation-review__link-status {
+  color: #007017;
+}
+
+[data-state='failed'] .gds-content-translation-review__link-status {
+  color: #b32d2e;
+}
