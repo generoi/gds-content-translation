@@ -336,7 +336,7 @@ cannot install. It does not change the plugin's own PHP requirement.
 
 ## Changelog
 
-### Unreleased
+### 1.2.0
 
 - **Status screen redesign** after three rounds of UI/UX review: one 41px line per row, no layout shift (CLS 0), language names in the admin's own language (Finnish/English/Swedish, or suomi/englanti/ruotsi), one line of filter chips, a status chip (Draft/Published, tick when proofread) and one AI badge per translation, everything else in a ⋯ menu shown on hover or focus, cards with the languages side by side on phones, no browser confirm dialogs.
 - **AI translate stays on the status screen**: the cell shows Translating…, then the translation and its AI review, without leaving the screen.
