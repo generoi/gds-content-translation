@@ -25,6 +25,32 @@ jobs:
 
       - run: composer lint
 
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - run: npm ci
+
+      - name: Lint
+        run: npm run lint:js
+
+      - name: Types
+        run: npm run lint:types
+
+      - name: Build
+        run: npm run build
+
+      # The committed build/ is what sites run: it must match the sources.
+      - name: Build is committed
+        run: git diff --exit-code build/
+
   test:
     name: PHPUnit
     runs-on: ubuntu-latest
