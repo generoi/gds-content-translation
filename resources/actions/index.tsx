@@ -16,7 +16,7 @@ import { getSettings, translationLanguages } from '../settings';
 import type { Followup, Settings } from '../settings';
 import type { Cell, Row } from '../types';
 import { notifySuccess } from '../ui/notify';
-import { FollowupRadios, InstructionsField } from '../ui/followup';
+import { FollowupRadios, GlossaryNote, InstructionsField } from '../ui/followup';
 
 /** Above this many new translations, the modal asks for an explicit yes. */
 export const CONFIRM_TRANSLATE_OVER = 10;
@@ -141,6 +141,7 @@ function LanguageModal( { items, closeModal, onActionPerformed, mode, screen }: 
 				<FollowupRadios selected={ followup } onChange={ setFollowup } />
 			) }
 			{ asksFollowup && <InstructionsField value={ instructions } onChange={ setInstructions } /> }
+			{ mode === 'translate' && <GlossaryNote slugs={ slugs } /> }
 			{ needsConfirm && (
 				<Notice status="warning" isDismissible={ false }>
 					<p>

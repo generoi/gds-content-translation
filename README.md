@@ -147,6 +147,7 @@ Polylang → **Translation glossary** keeps the terms with the translation they 
 - **Suggestions from the review**: a remark about how a term should be translated across the site carries the term, and it becomes a suggestion on the glossary screen, with the text it was seen in and its page. Seen on another page, or used with **Use suggestion**, it counts one more (*Seen 3 times*).
 - **Suggestions from proofreading**: the texts of an AI translation are kept when it is created. When it is marked proofread, the texts an editor changed are compared with them in the background (WP-Cron), and Claude names the term changes (*väggstöd* became *väggstag*) as suggestions. Once per translation; needs the Anthropic key. Off with `add_filter('gds_content_translation_glossary_learn', '__return_false');`.
 - Accepting a suggestion rejects the other approved translations of its source; a rejected suggestion is not suggested again.
+- The **AI translate** menu and the bulk dialog say whether the language has a glossary (*Glossary in use: 509 terms for Swedish* or *No glossary for Swedish*), with links to edit it or replace it with a CSV. The glossary screen takes `&target_lang=SV`, `&status=suggested` and `&import=1` in its URL.
 
 REST, under `gds-content-translation/v1`: `GET|POST /glossary`, `POST /glossary/{id}`, `POST /glossary/bulk`, `POST /glossary/import`, `GET|POST /glossary/sync`. The DeepL key is Polylang Pro's (`gds_content_translation_deepl_api_key` filters it).
 

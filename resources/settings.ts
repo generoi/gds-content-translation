@@ -37,6 +37,10 @@ export interface GlossarySettings {
 	deepl: boolean;
 	/** The AI review is on, and uses the glossary too. */
 	review: boolean;
+	/** The Translation glossary screen. */
+	url: string;
+	/** Each translation language (Polylang slug): its code and approved terms. */
+	languages: Record< string, { code: string; terms: number } >;
 }
 
 export interface Settings {
@@ -60,7 +64,6 @@ export interface Settings {
 	pageUrl: string;
 	settingsUrl: string;
 	userId: number;
-	/** Only on the Translation glossary screen. */
 	glossary?: GlossarySettings;
 }
 

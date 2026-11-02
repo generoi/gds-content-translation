@@ -715,6 +715,60 @@ $chip: 22px;
 	border-top: 1px solid #e0e0e0;
 }
 
+// Whether a glossary is in use for the language, under the AI translate
+// choices and in the bulk dialog.
+.gds-ct__glossary-note {
+	display: flex;
+	gap: 8px;
+	align-items: flex-start;
+	width: 312px;
+	max-width: calc(100vw - 32px);
+	box-sizing: border-box;
+	padding: 8px 12px 10px;
+	border-top: 1px solid #e0e0e0;
+	font-size: 12px;
+	line-height: 1.5;
+
+	> svg {
+		flex: none;
+		margin-top: -1px;
+		fill: #007017;
+	}
+
+	&.is-empty > svg {
+		fill: #757575;
+	}
+
+	> div {
+		display: flex;
+		flex-direction: column;
+		min-width: 0;
+	}
+
+	.gds-ct__modal & {
+		width: auto;
+		max-width: none;
+		margin-top: 16px;
+		padding: 12px 0 0;
+	}
+}
+
+.gds-ct__glossary-note-title {
+	font-weight: 500;
+	color: #1e1e1e;
+}
+
+.gds-ct__glossary-note-help {
+	color: #757575;
+}
+
+.gds-ct__glossary-note-links {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 4px 12px;
+	margin-top: 2px;
+}
+
 .gds-ct__instructions-toggle.components-button.is-link {
 	font-size: 12px;
 	text-decoration: none;

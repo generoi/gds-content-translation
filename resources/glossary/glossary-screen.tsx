@@ -34,17 +34,21 @@ const TABS: TermStatus[] = [ 'approved', 'suggested', 'draft', 'rejected' ];
 const SYNC_POLL = 20 * 1000;
 const SYNC_POLL_FOR = 10 * 60 * 1000;
 
-const fallback: GlossarySettings = { sourceLang: '', targetLangs: [], exportUrl: '', deepl: false, review: false };
+const fallback: GlossarySettings = { sourceLang: '', targetLangs: [], exportUrl: '', deepl: false, review: false, url: '', languages: {} };
+
+/** A deep link may name the tab (`&status=suggested`), the language (`&target_lang=SV`) and open the import (`&import=1`). */
+const query = new URLSearchParams( window.location.search );
 
 function defaultView( status: TermStatus ): View {
 	const suggested = status === 'suggested';
+	const language = query.get( 'target_lang' )?.toUpperCase() ?? '';
 
 	return {
 		type: 'table',
 		page: 1,
 		perPage: 50,
 		search: '',
-		filters: [],
+		filters: language ? [ { field: 'targetLang', operator: 'is', value: language } ] : [],
 		// The suggestions seen most often first: the likeliest to be right.
 		sort: suggested ? { field: 'hits', direction: 'desc' } : { field: 'source', direction: 'asc' },
 		titleField: 'source',
@@ -57,9 +61,8 @@ function defaultView( status: TermStatus ): View {
 	};
 }
 
-/** A deep link may name the tab: `&status=suggested`. */
 function initialStatus(): TermStatus {
-	const status = new URLSearchParams( window.location.search ).get( 'status' ) as TermStatus | null;
+	const status = query.get( 'status' ) as TermStatus | null;
 
 	return status && TABS.includes( status ) ? status : 'approved';
 }
@@ -91,7 +94,7 @@ export function GlossaryScreen() {
 	const [ selection, setSelection ] = useState< string[] >( [] );
 	const glossary = useWithPairs( settings, terms.data?.pairs );
 	const [ editing, setEditing ] = useState< Term | 'new' | null >( null );
-	const [ importing, setImporting ] = useState( false );
+	const [ importing, setImporting ] = useState( query.get( 'import' ) === '1' );
 	const [ isSending, setIsSending ] = useState( false );
 	const syncPollStartedRef = useRef( 0 );
 

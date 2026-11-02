@@ -504,6 +504,7 @@ function MissingCell( { item, slug, name, cell, about }: CellProps ) {
 					) }
 					renderContent={ ( { onClose } ) => (
 						<FollowupMenu
+							slug={ slug }
 							onChoose={ ( followup, instructions ) => {
 								onClose();
 								translateHere( followup, instructions );

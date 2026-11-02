@@ -513,8 +513,30 @@ class Admin
                 'exportUrl' => add_query_arg(['action' => self::exportAction, '_wpnonce' => wp_create_nonce(self::exportAction)], admin_url('admin-post.php')),
                 'deepl' => DeeplGlossary::apiKey() !== '',
                 'review' => TranslationAudit::isEnabled(),
+                'url' => admin_url('admin.php?page='.self::glossaryPageSlug),
+                'languages' => self::glossaryLanguages(),
             ],
         ];
+    }
+
+    /**
+     * Each translation language's glossary code and approved terms, for the
+     * AI translate menu's line on the glossary.
+     *
+     * @return array<string, array{code: string, terms: int}>
+     */
+    private static function glossaryLanguages(): array
+    {
+        $terms = array_column(Glossary::pairs(), 'approved', 'targetLang');
+        $languages = [];
+
+        foreach (StatusList::translationLanguageSlugs() as $slug) {
+            $language = PLL()->model->get_language($slug);
+            $code = $language ? Glossary::code($language) : '';
+            $languages[$slug] = ['code' => $code, 'terms' => (int) ($terms[$code] ?? 0)];
+        }
+
+        return $languages;
     }
 
     /** The glossary as DeepL's CSV, all of it or one language's, approved terms unless asked. */

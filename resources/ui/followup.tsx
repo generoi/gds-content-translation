@@ -6,8 +6,9 @@
  */
 import { Button, MenuGroup, MenuItem, TextareaControl } from '@wordpress/components';
 import { useState } from '@wordpress/element';
-import { __ } from '@wordpress/i18n';
-import { check, pencil, update } from '@wordpress/icons';
+import { __, _n, sprintf } from '@wordpress/i18n';
+import { check, Icon, info, pencil, update } from '@wordpress/icons';
+import { addQueryArgs } from '@wordpress/url';
 import type { ReactElement } from 'react';
 import { getSettings } from '../settings';
 import type { Followup } from '../settings';
@@ -62,8 +63,73 @@ export function InstructionsField( { value, onChange }: { value: string; onChang
 	);
 }
 
+/**
+ * Whether the translations about to be created have a glossary: how many
+ * terms DeepL and the AI review follow, with links to edit or replace it,
+ * or to start one.
+ */
+export function GlossaryNote( { slugs }: { slugs: string[] } ) {
+	const settings = getSettings();
+	const glossary = settings.glossary;
+
+	if ( ! glossary?.url || ! slugs.length ) {
+		return null;
+	}
+
+	const name = ( slug: string ) => settings.languages.find( ( language ) => language.slug === slug )?.name ?? slug;
+	const terms = ( slug: string ) => glossary.languages[ slug ]?.terms ?? 0;
+	const without = slugs.filter( ( slug ) => terms( slug ) === 0 );
+	const total = slugs.reduce( ( sum, slug ) => sum + terms( slug ), 0 );
+	const [ first = '' ] = slugs;
+	const single = slugs.length === 1 ? glossary.languages[ first ]?.code ?? '' : '';
+	const link = ( args: Record< string, string > ) => addQueryArgs( glossary.url, { ...( single ? { target_lang: single } : {} ), ...args } );
+
+	let title: string;
+
+	if ( total === 0 ) {
+		title =
+			slugs.length === 1
+				? /* translators: %s: language name */
+				  sprintf( __( 'No glossary for %s', 'gds-content-translation' ), name( first ) )
+				: __( 'No glossary for these languages', 'gds-content-translation' );
+	} else if ( slugs.length === 1 ) {
+		/* translators: 1: number of terms, 2: language name */
+		title = sprintf( _n( 'Glossary in use: %1$s term for %2$s', 'Glossary in use: %1$s terms for %2$s', total, 'gds-content-translation' ), total.toLocaleString(), name( first ) );
+	} else if ( without.length ) {
+		/* translators: %s: language names */
+		title = sprintf( __( 'Glossary in use, but none for %s', 'gds-content-translation' ), without.map( name ).join( ', ' ) );
+	} else {
+		/* translators: %d: number of languages */
+		title = sprintf( _n( 'Glossary in use for %d language', 'Glossary in use for %d languages', slugs.length, 'gds-content-translation' ), slugs.length );
+	}
+
+	let help = '';
+
+	if ( total > 0 ) {
+		help = glossary.deepl ? __( 'DeepL and the AI review follow it.', 'gds-content-translation' ) : __( 'The AI review follows it.', 'gds-content-translation' );
+	}
+
+	return (
+		<div className={ `gds-ct__glossary-note${ total === 0 ? ' is-empty' : '' }` }>
+			<Icon icon={ total > 0 ? check : info } size={ 20 } />
+			<div>
+				<span className="gds-ct__glossary-note-title">{ title }</span>
+				{ help && <span className="gds-ct__glossary-note-help">{ help }</span> }
+				<span className="gds-ct__glossary-note-links">
+					<a href={ link( {} ) } target="_blank" rel="noreferrer">
+						{ total > 0 ? __( 'Edit glossary', 'gds-content-translation' ) : __( 'Add terms', 'gds-content-translation' ) }
+					</a>
+					<a href={ link( { import: '1' } ) } target="_blank" rel="noreferrer">
+						{ total > 0 ? __( 'Replace with a CSV', 'gds-content-translation' ) : __( 'Import a CSV', 'gds-content-translation' ) }
+					</a>
+				</span>
+			</div>
+		</div>
+	);
+}
+
 /** The cell's menu: one item per way, the site default tagged. */
-export function FollowupMenu( { onChoose }: { onChoose: ( followup: Followup, instructions: string ) => void } ) {
+export function FollowupMenu( { slug, onChoose }: { slug: string; onChoose: ( followup: Followup, instructions: string ) => void } ) {
 	const settings = getSettings();
 	const [ instructions, setInstructions ] = useState( '' );
 
@@ -87,6 +153,7 @@ export function FollowupMenu( { onChoose }: { onChoose: ( followup: Followup, in
 			<div className="gds-ct__followup-instructions">
 				<InstructionsField value={ instructions } onChange={ setInstructions } />
 			</div>
+			<GlossaryNote slugs={ [ slug ] } />
 		</>
 	);
 }
