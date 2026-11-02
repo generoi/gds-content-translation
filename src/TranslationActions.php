@@ -252,6 +252,7 @@ final class TranslationActions
 
         if ($proofread) {
             update_post_meta($postId, GDS_CONTENT_TRANSLATION_META_KEY, '1');
+            GlossaryLearning::proofread($postId);
         } else {
             delete_post_meta($postId, GDS_CONTENT_TRANSLATION_META_KEY);
         }

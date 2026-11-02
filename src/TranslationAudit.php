@@ -81,6 +81,13 @@ final class TranslationAudit
 
     private const categories = ['meaning', 'omission', 'addition', 'terminology', 'grammar', 'fluency', 'tone', 'formatting', 'untranslated', 'other'];
 
+    /**
+     * The glossary terms found in the page under review.
+     *
+     * @var list<array{source: string, target: string, note?: string}>
+     */
+    private array $glossary = [];
+
     public static function init(): void
     {
         $audit = new self;
@@ -381,6 +388,10 @@ final class TranslationAudit
 
         self::store($postId, $review);
 
+        if ($review['status'] === 'done') {
+            GlossaryLearning::fromReview($postId, $review);
+        }
+
         $followup = (string) ($queued['followup'] ?? 'manual');
 
         if ($review['status'] === 'done' && in_array($followup, ['apply', 'apply_review'], true)) {
@@ -496,6 +507,13 @@ final class TranslationAudit
             'segments' => $paired['segments'],
             'unaligned' => $paired['unaligned'],
         ]);
+
+        $this->glossary = Glossary::termsIn(
+            implode("\n", array_column($paired['segments'], 'source')),
+            Glossary::code($sourceLanguage),
+            Glossary::code($targetLanguage)
+        );
+        $review['glossary'] = count($this->glossary);
 
         if ($paired['segments'] === []) {
             return array_merge($review, ['status' => 'done', 'summary' => __('Nothing to review: the original has no text in its content or its ACF text fields (a page whose content comes from its template, say).', 'gds-content-translation')]);
@@ -762,6 +780,12 @@ final class TranslationAudit
 
         self::store($postId, $review);
         AuditNotes::setState((int) ($remark['noteId'] ?? 0), 'resolved');
+
+        // An editor used the suggestion, and with it the remark's term: the
+        // glossary's suggestion of the term counts one more.
+        if ($resolution === 'suggestion' && ! empty($remark['term'])) {
+            Glossary::confirm(Glossary::code(self::localeOf((string) $review['sourceLanguage'])), Glossary::code(self::localeOf((string) $review['targetLanguage'])), $remark['term']['source'], $remark['term']['target']);
+        }
 
         return true;
     }
@@ -1137,6 +1161,47 @@ final class TranslationAudit
         }
     }
 
+    private static function localeOf(string $slug): string
+    {
+        $language = $slug !== '' ? PLL()->model->get_language($slug) : false;
+
+        return $language ? $language->locale : '';
+    }
+
+    /**
+     * One structured answer from Claude, with the review's model and key.
+     *
+     * @param  array<string, mixed>  $schema
+     * @return array<string, mixed>|WP_Error
+     */
+    public function ask(string $system, string $user, array $schema): array|WP_Error
+    {
+        $model = (string) apply_filters('gds_content_translation_audit_model', self::settings()['model']);
+        $message = $this->request([
+            'model' => $model,
+            'max_tokens' => 4000,
+            'system' => $system,
+            'messages' => [['role' => 'user', 'content' => $user]],
+            'output_config' => ['format' => ['type' => 'json_schema', 'schema' => $schema]],
+        ], []);
+
+        if ($message instanceof WP_Error) {
+            return $message;
+        }
+
+        $text = '';
+
+        foreach ((array) ($message['content'] ?? []) as $block) {
+            if (($block['type'] ?? '') === 'text') {
+                $text .= (string) ($block['text'] ?? '');
+            }
+        }
+
+        $result = json_decode($text, true);
+
+        return is_array($result) ? $result : new WP_Error('gds_ct_audit_unreadable', 'Claude returned an answer that could not be read.');
+    }
+
     private function systemPrompt(): string
     {
         return <<<'PROMPT'
@@ -1162,6 +1227,10 @@ Rules for remarks:
 - Keep remarks consistent with each other: do not suggest a term in one remark that another remark advises against.
 
 For every remark, give the segment number, a short explanation of the problem, and the full corrected translation of that segment as the suggestion, keeping every HTML tag and attribute exactly as in the current translation. Leave the suggestion empty only when no single corrected segment can be given.
+
+The user message can include the site's glossary: terms of this page with the translation they must have. A glossary term translated differently is a terminology problem. Inflected and compound forms of the glossary's translation are correct, as the grammar of the sentence needs them. Suggestions must use the glossary's translations.
+
+Give a remark a term when it is about how a single term (a product name, a technical word, a fixed phrase) should be translated across the whole site: the term in the original and its correct translation, both in their base form as a glossary lists them. Leave both empty for every other remark, and for a term the glossary has already.
 
 The user message can include the editor's instructions: for the whole site, and for this page. Follow them. They come first where they conflict with the general rules above, for example a required term or a tone, and a translation that does not follow them is a problem to report. Suggestions must follow them too. Do not report anything only because an instruction mentions it when the translation already follows it.
 
@@ -1192,6 +1261,8 @@ PROMPT;
                 'site' => $instructions['site'] ?? null,
                 'this_page' => $instructions['page'] ?? null,
             ]) ?: null,
+            // The site's required translations of the terms in this page.
+            'glossary' => $this->glossary ?: null,
             'part' => $parts > 1 ? sprintf('Part %d of %d of the page; the segment numbers continue across parts.', $part, $parts) : null,
             'segments' => array_map(static fn (array $segment): array => array_filter([
                 'id' => $segment['id'],
@@ -1222,8 +1293,17 @@ PROMPT;
                             'category' => ['type' => 'string', 'enum' => self::categories],
                             'issue' => ['type' => 'string'],
                             'suggestion' => ['type' => 'string'],
+                            'term' => [
+                                'type' => 'object',
+                                'properties' => [
+                                    'source' => ['type' => 'string'],
+                                    'target' => ['type' => 'string'],
+                                ],
+                                'required' => ['source', 'target'],
+                                'additionalProperties' => false,
+                            ],
                         ],
-                        'required' => ['segment', 'severity', 'category', 'issue', 'suggestion'],
+                        'required' => ['segment', 'severity', 'category', 'issue', 'suggestion', 'term'],
                         'additionalProperties' => false,
                     ],
                 ],
@@ -1261,14 +1341,21 @@ PROMPT;
                 continue;
             }
 
-            $normalized[] = [
+            $term = [
+                'source' => Glossary::cleanTerm($remark['term']['source'] ?? ''),
+                'target' => Glossary::cleanTerm($remark['term']['target'] ?? ''),
+            ];
+
+            $normalized[] = array_filter([
                 'segment' => $segment,
                 'severity' => in_array($remark['severity'] ?? '', self::severities, true) ? $remark['severity'] : 'warning',
                 'category' => in_array($remark['category'] ?? '', self::categories, true) ? $remark['category'] : 'other',
                 'issue' => (string) ($remark['issue'] ?? ''),
                 'suggestion' => $suggestion,
                 'state' => 'open',
-            ];
+                // For the glossary: which term the remark settles.
+                'term' => $term['source'] !== '' && $term['target'] !== '' ? $term : null,
+            ], static fn ($value): bool => $value !== null);
         }
 
         usort($normalized, static fn (array $a, array $b): int => $a['segment'] <=> $b['segment']);

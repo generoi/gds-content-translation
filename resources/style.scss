@@ -715,6 +715,60 @@ $chip: 22px;
 	border-top: 1px solid #e0e0e0;
 }
 
+// Whether a glossary is in use for the language, under the AI translate
+// choices and in the bulk dialog.
+.gds-ct__glossary-note {
+	display: flex;
+	gap: 8px;
+	align-items: flex-start;
+	width: 312px;
+	max-width: calc(100vw - 32px);
+	box-sizing: border-box;
+	padding: 8px 12px 10px;
+	border-top: 1px solid #e0e0e0;
+	font-size: 12px;
+	line-height: 1.5;
+
+	> svg {
+		flex: none;
+		margin-top: -1px;
+		fill: #007017;
+	}
+
+	&.is-empty > svg {
+		fill: #757575;
+	}
+
+	> div {
+		display: flex;
+		flex-direction: column;
+		min-width: 0;
+	}
+
+	.gds-ct__modal & {
+		width: auto;
+		max-width: none;
+		margin-top: 16px;
+		padding: 12px 0 0;
+	}
+}
+
+.gds-ct__glossary-note-title {
+	font-weight: 500;
+	color: #1e1e1e;
+}
+
+.gds-ct__glossary-note-help {
+	color: #757575;
+}
+
+.gds-ct__glossary-note-links {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 4px 12px;
+	margin-top: 2px;
+}
+
 .gds-ct__instructions-toggle.components-button.is-link {
 	font-size: 12px;
 	text-decoration: none;
@@ -844,7 +898,8 @@ $chip: 22px;
 // The bundled DataViews draws its checkbox tick as a stroke in the current
 // colour; core's stylesheet only sets a white fill, which left the tick
 // black on the blue box. White, here and in the modals.
-.languages_page_mlang_content_translation_status {
+.languages_page_mlang_content_translation_status,
+.languages_page_mlang_content_translation_glossary {
 	svg.components-checkbox-control__checked,
 	svg.components-checkbox-control__indeterminate {
 		color: #fff;
@@ -1073,6 +1128,302 @@ $chip: 22px;
 
 		&__text {
 			color: #1d2327;
+		}
+	}
+}
+
+// Translation glossary: the intro with DeepL's line and the buttons, a tab
+// per status, the table of terms.
+.gds-ct-glossary {
+	&__header {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: flex-start;
+		justify-content: space-between;
+		gap: 8px 24px;
+		margin: 8px 0 12px;
+
+		p {
+			margin: 0;
+		}
+	}
+
+	&__intro {
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+		min-width: 0;
+	}
+
+	// The icon beside the text, however it wraps; the button after it.
+	&__sync {
+		display: flex;
+		align-items: center;
+		gap: 4px 6px;
+		min-height: 32px;
+		color: $muted;
+
+		svg,
+		.components-button {
+			flex-shrink: 0;
+		}
+
+		svg {
+			fill: currentColor;
+		}
+
+		&.is-error {
+			color: $red;
+		}
+	}
+
+	&__buttons {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 8px;
+
+		&.is-centered {
+			justify-content: center;
+		}
+	}
+
+	// The tabs are buttons, styled as core's nav tabs.
+	// Relative, so a count's screen reader text stays inside the tabs' scroll.
+	&__tabs .nav-tab {
+		position: relative;
+		cursor: pointer;
+		font-family: inherit;
+	}
+
+	&__count {
+		display: inline-block;
+		min-width: 18px;
+		padding: 0 6px;
+		border-radius: 9px;
+		background: #dcdcde;
+		color: #1d2327;
+		font-size: 11px;
+		line-height: 18px;
+		text-align: center;
+		font-variant-numeric: tabular-nums;
+
+		// Suggestions waiting: the inbox.
+		&.is-new {
+			background: #d63638;
+			color: #fff;
+			font-weight: 600;
+		}
+	}
+
+	&__table .dataviews-view-table td {
+		height: auto;
+		min-height: $row;
+		padding-top: 6px;
+		padding-bottom: 6px;
+	}
+
+	&__term {
+		color: #1d2327;
+		overflow-wrap: anywhere;
+	}
+
+	&__target,
+	&__origin {
+		display: flex;
+		flex-direction: column;
+		align-items: flex-start;
+		gap: 2px;
+		white-space: normal;
+	}
+
+	&__conflict {
+		display: inline-flex;
+		align-items: center;
+		gap: 2px;
+		padding: 0 6px 0 2px;
+		border-radius: 10px;
+		background: #fcf9e8;
+		color: #8a6116;
+		font-size: 12px;
+		line-height: 20px;
+
+		svg {
+			fill: currentColor;
+		}
+	}
+
+	&__replaces,
+	&__hits,
+	&__note,
+	&__post {
+		color: $subtle;
+		font-size: 12px;
+	}
+
+	&__note {
+		display: -webkit-box;
+		overflow: hidden;
+		white-space: normal;
+		-webkit-box-orient: vertical;
+		-webkit-line-clamp: 2;
+	}
+
+	a.gds-ct-glossary__post {
+		color: $link;
+	}
+
+	&__example {
+		color: #1d2327;
+		font-size: 12px;
+		font-style: italic;
+		white-space: normal;
+	}
+
+	&__modal {
+		.components-notice {
+			margin: 0 0 16px;
+		}
+	}
+
+	&__form {
+		display: flex;
+		flex-direction: column;
+		gap: 16px;
+	}
+
+	&__context {
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+		margin: 0 0 16px;
+		padding: 8px 12px;
+		background: #f6f7f7;
+	}
+
+	&__file {
+		label {
+			display: block;
+			margin-bottom: 8px;
+			font-size: 11px;
+			font-weight: 500;
+			line-height: 1.4;
+			text-transform: uppercase;
+		}
+
+		input {
+			max-width: 100%;
+		}
+
+		.description {
+			margin: 8px 0 0;
+		}
+	}
+
+	&__file-summary {
+		margin: 8px 0 0;
+		font-weight: 600;
+	}
+
+	&__result {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+		gap: 8px;
+		margin: 0 0 12px;
+
+		div {
+			padding: 8px 12px;
+			border: 1px solid $border;
+			border-radius: 4px;
+		}
+
+		dt {
+			color: $muted;
+			font-size: 12px;
+		}
+
+		dd {
+			margin: 0;
+			font-size: 20px;
+			font-weight: 600;
+			font-variant-numeric: tabular-nums;
+		}
+	}
+}
+
+// Narrow screens: each term is a card, the term above its translation and
+// the rest below; the checkbox and the row's menu sit in its corner.
+@media (max-width: 782px) {
+	.gds-ct-glossary {
+		&__header {
+			flex-direction: column;
+		}
+
+		// The tabs scroll sideways rather than widen the page.
+		&__tabs {
+			display: flex;
+			max-width: 100%;
+			overflow-x: auto;
+			white-space: nowrap;
+
+			.nav-tab {
+				flex-shrink: 0;
+				padding: 4px 8px;
+			}
+		}
+
+		&__table {
+			.dataviews-view-table,
+			.dataviews-view-table tbody {
+				display: block;
+			}
+
+			.dataviews-view-table thead {
+				display: none;
+			}
+
+			.dataviews-view-table tbody tr {
+				position: relative;
+				display: flex !important;
+				flex-direction: column;
+				flex-wrap: nowrap;
+				align-items: stretch;
+				gap: 4px;
+				padding: 10px 44px 10px 44px;
+				border-bottom: 1px solid $border;
+			}
+
+			.dataviews-view-table tbody td {
+				display: block;
+				width: auto !important;
+				min-width: 0 !important;
+				height: auto;
+				min-height: 0;
+				padding: 0 !important;
+				border: 0;
+				text-align: left;
+			}
+
+			// An empty note takes no line.
+			.dataviews-view-table tbody td:has(> .dataviews-view-table__cell-content-wrapper:empty) {
+				display: none;
+			}
+
+			.dataviews-view-table tbody td .dataviews-view-table__cell-content-wrapper {
+				justify-content: flex-start;
+				min-height: 0;
+			}
+
+			.dataviews-view-table tbody td.dataviews-view-table__checkbox-column {
+				position: absolute;
+				top: 10px;
+				left: 12px;
+			}
+
+			.dataviews-view-table tbody td.dataviews-view-table__actions-column {
+				position: absolute;
+				top: 4px;
+				right: 4px;
+			}
 		}
 	}
 }

@@ -419,6 +419,18 @@ final class AuditReview
                             <p><strong><?php echo esc_html($heading); ?></strong><br><?php echo nl2br(esc_html($review['instructions'][$kind])); ?></p>
                         <?php } ?>
                     <?php } ?>
+                    <?php if ((int) ($review['glossary'] ?? 0) > 0) { ?>
+                        <p>
+                            <?php
+                            echo esc_html(sprintf(
+                                /* translators: %d: number of glossary terms */
+                                _n('%d glossary term of this page was checked.', '%d glossary terms of this page were checked.', (int) $review['glossary'], 'gds-content-translation'),
+                                (int) $review['glossary']
+                            ));
+                        ?>
+                            <a href="<?php echo esc_url(admin_url('admin.php?page=mlang_content_translation_glossary')); ?>"><?php echo esc_html__('Glossary', 'gds-content-translation'); ?></a>
+                        </p>
+                    <?php } ?>
                     <p class="description">
                         <?php
                         echo esc_html(sprintf(

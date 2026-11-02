@@ -10,6 +10,10 @@ class Admin
 {
     private const pageSlug = 'mlang_content_translation_status';
 
+    private const glossaryPageSlug = 'mlang_content_translation_glossary';
+
+    private const exportAction = 'gds_ct_glossary_export';
+
     private const postTypeUserMetaKey = 'content_translation_status_post_type';
 
     private const trashAction = 'gds_ct_trash_translation';
@@ -84,6 +88,7 @@ class Admin
         add_action('admin_post_'.self::trashRowAction, [$this, 'handleRowAction']);
         add_action('admin_post_'.self::restoreRowAction, [$this, 'handleRowAction']);
         add_action('admin_notices', [$this, 'renderNotices']);
+        add_action('admin_post_'.self::exportAction, [$this, 'exportGlossary']);
     }
 
     /**
@@ -241,6 +246,15 @@ class Admin
             self::pageSlug,
             [$this, 'renderPage']
         );
+
+        add_submenu_page(
+            'mlang',
+            __('Translation glossary', 'gds-content-translation'),
+            __('Translation glossary', 'gds-content-translation'),
+            'manage_options',
+            self::glossaryPageSlug,
+            [$this, 'renderGlossaryPage']
+        );
     }
 
     public function registerAdminBarMenu(): void
@@ -353,6 +367,12 @@ class Admin
 
     public function enqueueAssets(string $hookSuffix): void
     {
+        if ($hookSuffix === 'languages_page_'.self::glossaryPageSlug) {
+            $this->enqueueApp();
+
+            return;
+        }
+
         if ($hookSuffix !== 'languages_page_'.self::pageSlug && $hookSuffix !== 'languages_page_mlang_content_translation_settings') {
             return;
         }
@@ -487,7 +507,74 @@ class Admin
             'pageUrl' => admin_url('admin.php?page='.self::pageSlug),
             'settingsUrl' => admin_url('admin.php?page=mlang_content_translation_settings'),
             'userId' => get_current_user_id(),
+            'glossary' => [
+                'sourceLang' => Glossary::sourceCode(),
+                'targetLangs' => Glossary::targetLanguages(),
+                'exportUrl' => add_query_arg(['action' => self::exportAction, '_wpnonce' => wp_create_nonce(self::exportAction)], admin_url('admin-post.php')),
+                'deepl' => DeeplGlossary::apiKey() !== '',
+                'review' => TranslationAudit::isEnabled(),
+                'url' => admin_url('admin.php?page='.self::glossaryPageSlug),
+                'languages' => self::glossaryLanguages(),
+            ],
         ];
+    }
+
+    /**
+     * Each translation language's glossary code and approved terms, for the
+     * AI translate menu's line on the glossary.
+     *
+     * @return array<string, array{code: string, terms: int}>
+     */
+    private static function glossaryLanguages(): array
+    {
+        $terms = array_column(Glossary::pairs(), 'approved', 'targetLang');
+        $languages = [];
+
+        foreach (StatusList::translationLanguageSlugs() as $slug) {
+            $language = PLL()->model->get_language($slug);
+            $code = $language ? Glossary::code($language) : '';
+            $languages[$slug] = ['code' => $code, 'terms' => (int) ($terms[$code] ?? 0)];
+        }
+
+        return $languages;
+    }
+
+    /** The glossary as DeepL's CSV, all of it or one language's, approved terms unless asked. */
+    public function exportGlossary(): void
+    {
+        check_admin_referer(self::exportAction);
+
+        if (! current_user_can('manage_options')) {
+            wp_die(esc_html__('Permission denied.', 'gds-content-translation'), '', ['response' => 403]);
+        }
+
+        $targetLang = strtoupper(Request::key($_GET, 'target_lang'));
+        $statuses = array_filter(array_map('sanitize_key', explode(',', is_string($_GET['status'] ?? null) ? wp_unslash($_GET['status']) : 'approved')));
+        $filename = sprintf('glossary-%s%s-%s.csv', sanitize_title((string) wp_parse_url(home_url(), PHP_URL_HOST)), $targetLang !== '' ? '-'.strtolower($targetLang) : '', gmdate('Y-m-d'));
+
+        nocache_headers();
+        header('Content-Type: text/csv; charset=utf-8');
+        header('Content-Disposition: attachment; filename="'.$filename.'"');
+        echo Glossary::export($targetLang, $statuses); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- a CSV download.
+        exit;
+    }
+
+    public function renderGlossaryPage(): void
+    {
+        if (! current_user_can('manage_options')) {
+            return;
+        }
+
+        ?>
+        <div class="wrap gds-content-translation-app">
+            <h1 class="wp-heading-inline"><?php echo esc_html__('Translation glossary', 'gds-content-translation'); ?></h1>
+            <hr class="wp-header-end">
+            <div id="gds-ct-glossary-root">
+                <p class="gds-content-translation-app__loading"><span class="spinner is-active" style="float:none;margin:0 8px 0 0"></span><?php echo esc_html__('Loading…', 'gds-content-translation'); ?></p>
+                <noscript><p><?php echo esc_html__('The glossary needs JavaScript.', 'gds-content-translation'); ?></p></noscript>
+            </div>
+        </div>
+        <?php
     }
 
     /**

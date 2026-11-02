@@ -25,6 +25,24 @@ export interface PostTypeTab {
 	icon: { type: 'dashicon' | 'image'; value: string };
 }
 
+/** What the Translation glossary screen gets on top. */
+export interface GlossarySettings {
+	/** The default language's code: "EN". */
+	sourceLang: string;
+	/** The other languages, with names in the admin's language. */
+	targetLangs: Array< { code: string; name: string } >;
+	/** Every approved term as DeepL's CSV; `target_lang` and `status` narrow it. */
+	exportUrl: string;
+	/** DeepL is the machine translation of Polylang. */
+	deepl: boolean;
+	/** The AI review is on, and uses the glossary too. */
+	review: boolean;
+	/** The Translation glossary screen. */
+	url: string;
+	/** Each translation language (Polylang slug): its code and approved terms. */
+	languages: Record< string, { code: string; terms: number } >;
+}
+
 export interface Settings {
 	postTypes: PostTypeTab[];
 	postType: string;
@@ -46,6 +64,7 @@ export interface Settings {
 	pageUrl: string;
 	settingsUrl: string;
 	userId: number;
+	glossary?: GlossarySettings;
 }
 
 declare global {
