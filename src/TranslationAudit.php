@@ -207,6 +207,10 @@ final class TranslationAudit
             'sslverify' => apply_filters('https_local_ssl_verify', false),
             'body' => [
                 'action' => self::ajaxAction,
+                // Without it Polylang takes an admin-ajax request for a front-end
+                // one and loads its front-end filters with no current language,
+                // so get_locale() fails while a translation copies its media.
+                'pll_ajax_backend' => 1,
                 'post' => $postId,
                 'token' => $token,
             ],
