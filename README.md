@@ -109,7 +109,7 @@ What happens after the review of a new AI translation is chosen when translating
 
 The default is set under Content translation settings → *Default way to AI translate* (manual unless changed). The REST action takes it as `args.followup` (`manual`, `apply`, `apply_review`); a link to the old admin-post handler uses the default.
 
-**Instructions for the review.** Content translation settings → *Instructions for the AI review* is sent with every review: required terms, names that stay untranslated, tone (for example “a brace is always *väggstag* in Swedish, never *stöd*”). When starting an AI translation, *Add instructions for the AI review (optional)* in the cell's menu and the bulk dialog adds instructions for those translations only (`args.instructions` on the REST action), kept for *Run the review again*. Claude reports a translation that does not follow them, and its suggestions follow them, so with *fix automatically* they end up in the translation. They do not reach DeepL (Polylang Pro's DeepL client takes none); a DeepL glossary is the place for terms there. The review page shows the instructions it used under *About this review*. Each is limited to 4,000 characters.
+**Instructions for the review.** Content translation settings → *Instructions for the AI review* is sent with every review: required terms, names that stay untranslated, tone (for example “a brace is always *väggstag* in Swedish, never *stöd*”). When starting an AI translation, *Add instructions for the AI review (optional)* in the cell's menu and the bulk dialog adds instructions for those translations only (`args.instructions` on the REST action), kept for *Run the review again*. Claude reports a translation that does not follow them, and its suggestions follow them, so with *fix automatically* they end up in the translation. They do not reach DeepL (Polylang Pro's DeepL client takes none); the translation glossary below is the place for terms there. The review page shows the instructions it used under *About this review*. Each is limited to 4,000 characters.
 
 - The review runs **in the background** once the translation is saved, so the editor opens without waiting. A non-blocking request to `admin-ajax.php` (authorised by a one-time token) starts it at once; a WP-Cron event two minutes later is the fallback. A review that has not finished after 10 minutes shows as *did not finish*.
 - Original and translation are paired with Polylang Pro's own translation walker, top-level block by top-level block, repeated texts included. Texts in blocks that were added, removed or moved count as *not matched* and are not reviewed. Claude gets numbered `{id, source, translation}` pairs plus the page title and both languages.
@@ -135,6 +135,20 @@ add_filter('gds_content_translation_audit_enabled', '__return_false');
 // Use another model than the one chosen in the settings.
 add_filter('gds_content_translation_audit_model', fn () => 'claude-opus-5-5');
 ```
+
+### Translation glossary
+
+Polylang → **Translation glossary** keeps the terms with the translation they must have: product names, technical words, fixed phrases. Terms are per language pair by language code (`EN` → `SV`), as DeepL names them, so two markets in one language share them. One database table per site (`{prefix}gds_ct_glossary`), created on the first request after an update.
+
+- **The screen**: a DataViews table of the terms, searched and filtered by language, with *In use*, *Suggested*, *Drafts* and *Rejected*. Terms are added and edited in a dialog, with a note; several at once are approved, moved to drafts, rejected or deleted. A source with two approved translations is marked as a conflict.
+- **CSV import and export** in DeepL's format: no header, `"source","target","EN","SV"`, UTF-8 (a byte order mark is fine). *Add and update* adds new terms and gives an approved term the file's translation of it; *Replace* first removes the approved and draft terms of the language pairs in the file. A two-column file takes the language chosen. The export is the same format.
+- **DeepL**: approved terms are sent to DeepL as one multilingual glossary (DeepL's v3 API) with a dictionary per language pair, within a minute of a change and before the next AI translation; *Send to DeepL now* sends at once. The new glossary is created before the old one is deleted. Polylang Pro's DeepL client has no glossary setting, so the glossary's ID is added to its `/v2/translate` requests through `http_request_args`, for the language pairs the glossary has. DeepL uses a glossary only for exact matches of a term.
+- **AI review**: the approved terms found in the page (whole words, any case, at most 150, longer terms first) are sent with the review as required translations. A different translation is a terminology remark; inflected forms are fine, and suggestions use the glossary. *About this review* says how many terms were checked.
+- **Suggestions from the review**: a remark about how a term should be translated across the site carries the term, and it becomes a suggestion on the glossary screen, with the text it was seen in and its page. Seen on another page, or used with **Use suggestion**, it counts one more (*Seen 3 times*).
+- **Suggestions from proofreading**: the texts of an AI translation are kept when it is created. When it is marked proofread, the texts an editor changed are compared with them in the background (WP-Cron), and Claude names the term changes (*väggstöd* became *väggstag*) as suggestions. Once per translation; needs the Anthropic key. Off with `add_filter('gds_content_translation_glossary_learn', '__return_false');`.
+- Accepting a suggestion rejects the other approved translations of its source; a rejected suggestion is not suggested again.
+
+REST, under `gds-content-translation/v1`: `GET|POST /glossary`, `POST /glossary/{id}`, `POST /glossary/bulk`, `POST /glossary/import`, `GET|POST /glossary/sync`. The DeepL key is Polylang Pro's (`gds_content_translation_deepl_api_key` filters it).
 
 ### Polylang block integration
 
@@ -345,6 +359,13 @@ wp-env run, so a `composer update` on a newer PHP cannot pick dev packages they
 cannot install. It does not change the plugin's own PHP requirement.
 
 ## Changelog
+
+### 1.4.0
+
+- **Translation glossary** (Polylang → Translation glossary): terms with their required translation per language, imported and exported as DeepL's CSV and edited in the admin.
+- **DeepL uses the glossary**: approved terms are sent to DeepL as a glossary and added to Polylang Pro's translate requests.
+- **The AI review checks the glossary**: the page's terms go to Claude as required translations.
+- **The glossary learns**: terms the AI review settles and terms editors change before marking a translation proofread become suggestions to accept or reject.
 
 ### 1.3.0
 

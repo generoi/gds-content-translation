@@ -239,6 +239,11 @@ class MachineTranslation
         try {
             $client = $mode === self::modeCopy ? new SourceCopyClient : $creator->getServiceClient();
 
+            // A glossary change not yet sent to DeepL goes before this translation.
+            if ($mode !== self::modeCopy) {
+                DeeplGlossary::syncIfPending();
+            }
+
             // A translation in the trash is still linked to its source, and
             // Polylang would refuse a second one for the same language. Unlink
             // it: it stays in the trash, now on its own, and the new
@@ -355,6 +360,11 @@ class MachineTranslation
         // A copy is untranslated text: it stays a draft whatever the setting.
         if (! $client instanceof SourceCopyClient && self::publishesTranslations()) {
             self::publishTranslations($container, $targetLang);
+        }
+
+        // Kept to learn the glossary terms an editor changes before proofreading it.
+        if (! $client instanceof SourceCopyClient) {
+            GlossaryLearning::rememberMachineText($translationId);
         }
 
         // Reviewed in the background, so the editor opens without waiting for

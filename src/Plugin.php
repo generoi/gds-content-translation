@@ -6,6 +6,7 @@ use GeneroWP\ContentTranslation\Polylang\BlockLinkTranslation;
 use GeneroWP\ContentTranslation\Polylang\BlockPostIdTranslation;
 use GeneroWP\ContentTranslation\Polylang\BlockRules;
 use GeneroWP\ContentTranslation\Polylang\MetaRules;
+use GeneroWP\ContentTranslation\Rest\GlossaryController;
 use GeneroWP\ContentTranslation\Rest\StatusController;
 
 class Plugin
@@ -40,6 +41,10 @@ class Plugin
         AuditNotes::init();
         BulkTranslation::init();
         StatusController::init();
+        Glossary::init();
+        DeeplGlossary::init();
+        GlossaryLearning::init();
+        GlossaryController::init();
 
         new BlockRules;
         new BlockLinkTranslation;
