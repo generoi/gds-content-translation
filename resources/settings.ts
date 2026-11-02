@@ -35,6 +35,9 @@ export interface Settings {
 	/** The site's default follow-up of the review of a new AI translation. */
 	followup: Followup;
 	/** Every follow-up with its title and one line of help, in order. */
+	/** The site's instructions for the AI review (settings), shown as a hint. */
+	instructions: string;
+	instructionsMax: number;
 	followups: Record< Followup, FollowupOption >;
 	/** AI translations are published when their original is. */
 	publish: boolean;
@@ -59,6 +62,8 @@ const fallback: Settings = {
 	copyTranslation: false,
 	review: false,
 	followup: 'manual',
+	instructions: '',
+	instructionsMax: 4000,
 	followups: {
 		manual: { label: '', description: '' },
 		apply: { label: '', description: '' },

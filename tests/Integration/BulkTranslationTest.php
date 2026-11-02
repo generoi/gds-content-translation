@@ -25,6 +25,9 @@ class BulkTranslationTest extends RestTestCase
     /** @var list<string> */
     private array $followups = [];
 
+    /** @var list<string> */
+    private array $instructions = [];
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -57,8 +60,9 @@ class BulkTranslationTest extends RestTestCase
     /**
      * Creates the translation as a linked post, as MachineTranslation::create() would.
      */
-    public function fakeCreate(int $sourceId, string $language, string $mode = '', string $followup = ''): int|WP_Error
+    public function fakeCreate(int $sourceId, string $language, string $mode = '', string $followup = '', string $instructions = ''): int|WP_Error
     {
+        $this->instructions[] = $instructions;
         $this->created[] = [$sourceId, $language, get_current_user_id()];
         $this->followups[] = $followup;
 
@@ -125,7 +129,7 @@ class BulkTranslationTest extends RestTestCase
         $first = $this->createPost('en', ['post_title' => 'First']);
         $second = $this->createPost('en', ['post_title' => 'Second']);
 
-        BulkTranslation::enqueue([$first], ['fi'], MachineTranslation::modeAi, 'apply_review');
+        BulkTranslation::enqueue([$first], ['fi'], MachineTranslation::modeAi, 'apply_review', 'Formal tone.');
         BulkTranslation::enqueue([$second], ['fi'], MachineTranslation::modeAi, 'nonsense');
         $this->assertSame('apply_review', BulkTranslation::job($first, 'fi')['followup']);
         $this->assertSame('', BulkTranslation::job($second, 'fi')['followup'], 'Unknown: the site default.');
@@ -133,6 +137,7 @@ class BulkTranslationTest extends RestTestCase
         BulkTranslation::work(60.0, [$this, 'fakeCreate']);
 
         $this->assertSame(['apply_review', ''], $this->followups);
+        $this->assertSame(['Formal tone.', ''], $this->instructions);
         $this->assertSame('apply_review', BulkTranslation::job($first, 'fi')['followup'], 'Kept once done.');
     }
 

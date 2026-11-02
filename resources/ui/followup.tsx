@@ -4,7 +4,8 @@
  * menu and the bulk AI translation dialog, so both look and read the same.
  * Titles and help lines come from PHP (TranslationAudit::followupOptions).
  */
-import { MenuGroup, MenuItem } from '@wordpress/components';
+import { Button, MenuGroup, MenuItem, TextareaControl } from '@wordpress/components';
+import { useState } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 import { check, pencil, update } from '@wordpress/icons';
 import type { ReactElement } from 'react';
@@ -25,26 +26,68 @@ function DefaultTag() {
 	return <span className="gds-ct__default-tag">{ __( 'Default', 'gds-content-translation' ) }</span>;
 }
 
-/** The cell's menu: one item per way, the site default tagged. */
-export function FollowupMenu( { onChoose }: { onChoose: ( followup: Followup ) => void } ) {
+/**
+ * Optional instructions for the AI review of the translations about to be
+ * created, on top of the site's (Content translation settings). Folded away
+ * behind a link until wanted.
+ */
+export function InstructionsField( { value, onChange }: { value: string; onChange: ( value: string ) => void } ) {
 	const settings = getSettings();
+	const [ open, setOpen ] = useState( value !== '' );
+
+	if ( ! open ) {
+		return (
+			<Button variant="link" className="gds-ct__instructions-toggle" onClick={ () => setOpen( true ) }>
+				{ __( 'Add instructions for the AI review (optional)', 'gds-content-translation' ) }
+			</Button>
+		);
+	}
 
 	return (
-		<MenuGroup className="gds-ct__followup-menu" label={ __( 'Start AI translation', 'gds-content-translation' ) }>
-			{ followups().map( ( followup ) => (
-				<MenuItem
-					key={ followup }
-					className="gds-ct__followup-item"
-					icon={ FOLLOWUP_ICONS[ followup ] }
-					iconPosition="left"
-					info={ settings.followups[ followup ].description }
-					onClick={ () => onChoose( followup ) }
-				>
-					<span className="gds-ct__followup-title">{ settings.followups[ followup ].label }</span>
-					{ followup === settings.followup && <DefaultTag /> }
-				</MenuItem>
-			) ) }
-		</MenuGroup>
+		<TextareaControl
+			className="gds-ct__instructions"
+			__nextHasNoMarginBottom
+			label={ __( 'Instructions for the AI review (optional)', 'gds-content-translation' ) }
+			help={
+				settings.instructions
+					? __( 'Added to the site’s instructions from the settings, for these translations only.', 'gds-content-translation' )
+					: __( 'For these translations only: terms, names to keep, tone.', 'gds-content-translation' )
+			}
+			placeholder={ __( 'For example: this page is for distributors, use a formal tone.', 'gds-content-translation' ) }
+			value={ value }
+			onChange={ onChange }
+			rows={ 3 }
+			maxLength={ settings.instructionsMax }
+		/>
+	);
+}
+
+/** The cell's menu: one item per way, the site default tagged. */
+export function FollowupMenu( { onChoose }: { onChoose: ( followup: Followup, instructions: string ) => void } ) {
+	const settings = getSettings();
+	const [ instructions, setInstructions ] = useState( '' );
+
+	return (
+		<>
+			<MenuGroup className="gds-ct__followup-menu" label={ __( 'Start AI translation', 'gds-content-translation' ) }>
+				{ followups().map( ( followup ) => (
+					<MenuItem
+						key={ followup }
+						className="gds-ct__followup-item"
+						icon={ FOLLOWUP_ICONS[ followup ] }
+						iconPosition="left"
+						info={ settings.followups[ followup ].description }
+						onClick={ () => onChoose( followup, instructions.trim() ) }
+					>
+						<span className="gds-ct__followup-title">{ settings.followups[ followup ].label }</span>
+						{ followup === settings.followup && <DefaultTag /> }
+					</MenuItem>
+				) ) }
+			</MenuGroup>
+			<div className="gds-ct__followup-instructions">
+				<InstructionsField value={ instructions } onChange={ setInstructions } />
+			</div>
+		</>
 	);
 }
 

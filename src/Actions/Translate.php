@@ -37,6 +37,8 @@ final class Translate extends BaseAction
 
         // What happens with the AI review's suggestions; the site's default when not given.
         $sanitized['followup'] = TranslationAudit::followup($args['followup'] ?? null);
+        // Optional, for the AI review of these translations, on top of the site's instructions.
+        $sanitized['instructions'] = TranslationAudit::cleanInstructions($args['instructions'] ?? '');
 
         return $sanitized;
     }
@@ -54,7 +56,7 @@ final class Translate extends BaseAction
             return new WP_Error('gds_ct_invalid', __('The original is in the trash. Restore it before translating it.', 'gds-content-translation'));
         }
 
-        $outcome = BulkTranslation::enqueue([$sourceId], $args['languages'], MachineTranslation::modeAi, (string) ($args['followup'] ?? ''))[$sourceId] ?? [];
+        $outcome = BulkTranslation::enqueue([$sourceId], $args['languages'], MachineTranslation::modeAi, (string) ($args['followup'] ?? ''), (string) ($args['instructions'] ?? ''))[$sourceId] ?? [];
         $counts = array_count_values($outcome);
 
         return [

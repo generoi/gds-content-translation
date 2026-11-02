@@ -109,6 +109,8 @@ What happens after the review of a new AI translation is chosen when translating
 
 The default is set under Content translation settings → *Default way to AI translate* (manual unless changed). The REST action takes it as `args.followup` (`manual`, `apply`, `apply_review`); a link to the old admin-post handler uses the default.
 
+**Instructions for the review.** Content translation settings → *Instructions for the AI review* is sent with every review: required terms, names that stay untranslated, tone (for example “a brace is always *väggstag* in Swedish, never *stöd*”). When starting an AI translation, *Add instructions for the AI review (optional)* in the cell's menu and the bulk dialog adds instructions for those translations only (`args.instructions` on the REST action), kept for *Run the review again*. Claude reports a translation that does not follow them, and its suggestions follow them, so with *fix automatically* they end up in the translation. They do not reach DeepL (Polylang Pro's DeepL client takes none); a DeepL glossary is the place for terms there. The review page shows the instructions it used under *About this review*. Each is limited to 4,000 characters.
+
 - The review runs **in the background** once the translation is saved, so the editor opens without waiting. A non-blocking request to `admin-ajax.php` (authorised by a one-time token) starts it at once; a WP-Cron event two minutes later is the fallback. A review that has not finished after 10 minutes shows as *did not finish*.
 - Original and translation are paired with Polylang Pro's own translation walker, top-level block by top-level block, repeated texts included. Texts in blocks that were added, removed or moved count as *not matched* and are not reviewed. Claude gets numbered `{id, source, translation}` pairs plus the page title and both languages.
 - The status screen cell shows **AI review: 3 errors · 5 to check**, **AI review: all handled**, **AI review running…**, **AI review failed** or **did not finish**, and **· edited since** once the translation has changed after the review. Rows with a review running reload by themselves until it is done.
@@ -346,6 +348,7 @@ cannot install. It does not change the plugin's own PHP requirement.
 
 ### 1.3.0
 
+- **Instructions for the AI review**: site-wide in the settings, and optionally per translation when AI translating. Claude reports what does not follow them and follows them in its suggestions; the review page shows them.
 - **Choose what happens after the AI review** when AI translating, in the cell's menu and the bulk dialog: review the remarks manually, apply every suggestion automatically, or apply them and review once more. The default is a new setting.
 - The bulk translation and AI review workers load Polylang's admin side (`pll_ajax_backend`). As front-end AJAX requests they had no current language, and copying a translation's media failed with "Attempt to read property "locale" on null" where warnings become exceptions (Acorn with `WP_DEBUG`).
 

@@ -704,6 +704,33 @@ $chip: 22px;
 	line-height: 1.4;
 }
 
+// Under the menu's three ways: optional instructions for the AI review,
+// folded behind a link. Same width as the menu above it.
+.gds-ct__followup-instructions {
+	width: 312px;
+	max-width: calc(100vw - 32px);
+	box-sizing: border-box;
+	margin-top: 4px;
+	padding: 8px 12px 4px;
+	border-top: 1px solid #e0e0e0;
+}
+
+.gds-ct__instructions-toggle.components-button.is-link {
+	font-size: 12px;
+	text-decoration: none;
+
+	&:hover,
+	&:focus {
+		text-decoration: underline;
+	}
+}
+
+// In the bulk dialog, below the radio cards.
+.gds-ct__modal .gds-ct__instructions-toggle,
+.gds-ct__modal .gds-ct__instructions {
+	margin-top: 12px;
+}
+
 // One canvas for the page, never removed; shown by an inline style while a burst runs.
 .gds-ct__celebration {
 	position: fixed;

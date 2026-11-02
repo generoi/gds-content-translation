@@ -411,6 +411,14 @@ final class AuditReview
                     <?php if ($review['summary'] !== '') { ?>
                         <p><?php echo esc_html($review['summary']); ?></p>
                     <?php } ?>
+                    <?php foreach ([
+                        'site' => __('Site instructions', 'gds-content-translation'),
+                        'page' => __('Instructions for this translation', 'gds-content-translation'),
+                    ] as $kind => $heading) { ?>
+                        <?php if (($review['instructions'][$kind] ?? '') !== '') { ?>
+                            <p><strong><?php echo esc_html($heading); ?></strong><br><?php echo nl2br(esc_html($review['instructions'][$kind])); ?></p>
+                        <?php } ?>
+                    <?php } ?>
                     <p class="description">
                         <?php
                         echo esc_html(sprintf(

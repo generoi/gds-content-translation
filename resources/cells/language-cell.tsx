@@ -360,7 +360,7 @@ function MissingCell( { item, slug, name, cell, about }: CellProps ) {
 	 * translation with its AI review. The link stays a plain link for
 	 * opening in another tab.
 	 */
-	const translateHere = ( followup?: Followup ) => {
+	const translateHere = ( followup?: Followup, instructions = '' ) => {
 		if ( blocked ) {
 			return;
 		}
@@ -376,7 +376,7 @@ function MissingCell( { item, slug, name, cell, about }: CellProps ) {
 		);
 
 		screen
-			.run( 'translate', [ item.sourceId ], { languages: [ slug ], ...( followup ? { followup } : {} ) } )
+			.run( 'translate', [ item.sourceId ], { languages: [ slug ], ...( followup ? { followup } : {} ), ...( instructions ? { instructions } : {} ) } )
 			.then( ( response ) => {
 				if ( ! response.ok ) {
 					notifyError( response.results[ 0 ]?.message || response.message );
@@ -504,9 +504,9 @@ function MissingCell( { item, slug, name, cell, about }: CellProps ) {
 					) }
 					renderContent={ ( { onClose } ) => (
 						<FollowupMenu
-							onChoose={ ( followup ) => {
+							onChoose={ ( followup, instructions ) => {
 								onClose();
-								translateHere( followup );
+								translateHere( followup, instructions );
 							} }
 						/>
 					) }

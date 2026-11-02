@@ -368,6 +368,48 @@ class TranslationAuditTest extends AdminActionTestCase
         $this->assertCount(2, $this->claudeRequests);
     }
 
+    public function test_site_and_page_instructions_go_to_claude_and_stay_with_the_review(): void
+    {
+        $ids = $this->translation();
+        update_option(TranslationAudit::optionKey, ['instructions' => "  “Read more” is always “Lue lisää”.\n<b>No</b> HTML.  "]);
+        $this->claudeResponse = $this->claudeAnswers(['summary' => 'Fine.', 'remarks' => []]);
+
+        TranslationAudit::queue($ids['fi'], 'manual', 'This page is for distributors: formal tone.');
+        do_action('gds_content_translation_run_audit', $ids['fi']);
+
+        $system = $this->claudeRequests[0]['body']['system'];
+        $payload = json_decode($this->claudeRequests[0]['body']['messages'][0]['content'], true);
+        $this->assertStringContainsString("editor's instructions", $system);
+        $this->assertSame([
+            'site' => "“Read more” is always “Lue lisää”.\nNo HTML.",
+            'this_page' => 'This page is for distributors: formal tone.',
+        ], $payload['instructions']);
+
+        $review = TranslationAudit::get($ids['fi']);
+        $this->assertSame('This page is for distributors: formal tone.', $review['instructions']['page']);
+
+        // Run again: the page's instructions are kept; the site's are read anew.
+        update_option(TranslationAudit::optionKey, ['instructions' => '']);
+        TranslationAudit::queue($ids['fi']);
+        do_action('gds_content_translation_run_audit', $ids['fi']);
+        $payload = json_decode($this->claudeRequests[1]['body']['messages'][0]['content'], true);
+        $this->assertSame(['this_page' => 'This page is for distributors: formal tone.'], $payload['instructions']);
+
+        delete_option(TranslationAudit::optionKey);
+    }
+
+    public function test_without_instructions_the_prompt_has_none(): void
+    {
+        $ids = $this->translation();
+        $this->claudeResponse = $this->claudeAnswers(['summary' => 'Fine.', 'remarks' => []]);
+
+        (new TranslationAudit)->run($ids['fi']);
+
+        $payload = json_decode($this->claudeRequests[0]['body']['messages'][0]['content'], true);
+        $this->assertNull($payload['instructions']);
+        $this->assertSame(str_repeat('a', TranslationAudit::instructionsMax), TranslationAudit::cleanInstructions(str_repeat('a', TranslationAudit::instructionsMax + 50)));
+    }
+
     public function test_the_follow_up_falls_back_to_the_site_default(): void
     {
         $this->assertSame('manual', TranslationAudit::followup(null));
