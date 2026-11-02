@@ -475,6 +475,10 @@ class Admin
             'machineTranslation' => MachineTranslation::isAvailable(),
             'copyTranslation' => MachineTranslation::isCopyAvailable(),
             'review' => TranslationAudit::isEnabled(),
+            'followup' => TranslationAudit::settings()['followup'],
+            'instructions' => TranslationAudit::settings()['instructions'],
+            'instructionsMax' => TranslationAudit::instructionsMax,
+            'followups' => TranslationAudit::followupOptions(),
             'publish' => MachineTranslation::publishesTranslations(),
             // One nonce per screen for the create and review links: their
             // handlers check the post, language and capability themselves.

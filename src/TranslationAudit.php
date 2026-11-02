@@ -41,6 +41,17 @@ final class TranslationAudit
 
     public const remarkStates = ['open', 'resolved', 'dismissed'];
 
+    /**
+     * What happens once the review of a new AI translation is done: an editor
+     * goes through the remarks, every suggestion is written into the
+     * translation, or the suggestions are written in and the translation is
+     * reviewed once more (that second review is left to an editor).
+     */
+    public const followups = ['manual', 'apply', 'apply_review'];
+
+    /** Longest site-wide and per-translation instructions, in characters. */
+    public const instructionsMax = 4000;
+
     /** Seconds after which a queued review that never finished counts as stuck. */
     public const stuckAfter = 600;
 
@@ -95,6 +106,38 @@ final class TranslationAudit
      *
      * @return array<string, string>
      */
+    /**
+     * The choices for what happens after the review of a new AI translation:
+     * a short title and one line of help each, in the order they are shown.
+     *
+     * @return array<string, array{label: string, description: string}>
+     */
+    public static function followupOptions(): array
+    {
+        return [
+            'manual' => [
+                'label' => __('Translate, I’ll review', 'gds-content-translation'),
+                'description' => __('You go through the AI remarks.', 'gds-content-translation'),
+            ],
+            'apply' => [
+                'label' => __('Translate and fix automatically', 'gds-content-translation'),
+                'description' => __('Every AI suggestion is applied.', 'gds-content-translation'),
+            ],
+            'apply_review' => [
+                'label' => __('Translate, fix, then check again', 'gds-content-translation'),
+                'description' => __('Suggestions applied, then a second review.', 'gds-content-translation'),
+            ],
+        ];
+    }
+
+    /**
+     * A follow-up from a request, or the site's default when it is not one.
+     */
+    public static function followup(mixed $value): string
+    {
+        return is_string($value) && in_array($value, self::followups, true) ? $value : self::settings()['followup'];
+    }
+
     public static function remarkLanguages(): array
     {
         return [
@@ -113,13 +156,25 @@ final class TranslationAudit
         $saved = is_array($saved) ? $saved : [];
         $model = is_string($saved['model'] ?? null) && isset(self::models()[$saved['model']]) ? $saved['model'] : self::defaultModel;
         $language = is_string($saved['language'] ?? null) && isset(self::remarkLanguages()[$saved['language']]) ? $saved['language'] : 'target';
+        $followup = is_string($saved['followup'] ?? null) && in_array($saved['followup'], self::followups, true) ? $saved['followup'] : 'manual';
 
         return [
             'enabled' => (bool) ($saved['enabled'] ?? true),
             'model' => $model,
             'language' => $language,
             'notes' => (bool) ($saved['notes'] ?? true),
+            'followup' => $followup,
+            // Sent with every review: the site's terms, tone and so on.
+            'instructions' => is_string($saved['instructions'] ?? null) ? $saved['instructions'] : '',
         ];
+    }
+
+    /**
+     * Instructions as typed by an editor: plain text, trimmed, not too long.
+     */
+    public static function cleanInstructions(mixed $value): string
+    {
+        return is_string($value) ? mb_substr(trim(sanitize_textarea_field($value)), 0, self::instructionsMax) : '';
     }
 
     /**
@@ -155,7 +210,10 @@ final class TranslationAudit
      * pages would otherwise start a hundred PHP processes): beyond that a
      * review waits, and each finished review starts the next waiting one.
      */
-    public static function queue(int $postId): void
+    /**
+     * @param  string|null  $instructions  For this translation, on top of the site's; null keeps the previous review's.
+     */
+    public static function queue(int $postId, string $followup = 'manual', ?string $instructions = null): void
     {
         $sourceId = self::sourceIdOf($postId);
 
@@ -172,6 +230,11 @@ final class TranslationAudit
             'queuedAt' => time(),
             'sourceId' => $sourceId,
             'requestedBy' => get_current_user_id() ?: (int) ($previous['requestedBy'] ?? 0),
+            'followup' => in_array($followup, self::followups, true) ? $followup : 'manual',
+            // "Run the review again" and the second review of a follow-up keep the first one's.
+            'pageInstructions' => $instructions !== null ? self::cleanInstructions($instructions) : (string) ($previous['pageInstructions'] ?? ($previous['instructions']['page'] ?? '')),
+            // A review after suggestions were applied automatically says so.
+            'appliedBefore' => ($previous['followup'] ?? '') === 'apply_review' ? (int) ($previous['autoApplied'] ?? 0) : 0,
             // The editor notes of the review this one replaces, removed when it runs.
             'previousNotes' => array_merge(
                 array_values(array_filter(array_map('intval', array_column((array) ($previous['remarks'] ?? []), 'noteId')))),
@@ -207,6 +270,10 @@ final class TranslationAudit
             'sslverify' => apply_filters('https_local_ssl_verify', false),
             'body' => [
                 'action' => self::ajaxAction,
+                // Without it Polylang takes an admin-ajax request for a front-end
+                // one and loads its front-end filters with no current language,
+                // so get_locale() fails while a translation copies its media.
+                'pll_ajax_backend' => 1,
                 'post' => $postId,
                 'token' => $token,
             ],
@@ -304,15 +371,81 @@ final class TranslationAudit
         delete_post_meta($postId, self::tokenMetaKey);
 
         AuditNotes::remove($postId, array_map('intval', (array) ($queued['previousNotes'] ?? [])));
-        $review = $this->run($postId);
+        $review = $this->run($postId, (string) ($queued['pageInstructions'] ?? ''));
         $review['requestedBy'] = (int) ($queued['requestedBy'] ?? 0);
+        $review['appliedBefore'] = (int) ($queued['appliedBefore'] ?? 0);
 
         if ($review['status'] === 'done' && self::settings()['notes']) {
             $review = AuditNotes::add($postId, $review);
         }
 
         self::store($postId, $review);
+
+        $followup = (string) ($queued['followup'] ?? 'manual');
+
+        if ($review['status'] === 'done' && in_array($followup, ['apply', 'apply_review'], true)) {
+            self::applyAll($postId, $followup);
+
+            if ($followup === 'apply_review' && self::countApplied($postId) > 0) {
+                // Checks the text as it is now; what it finds is left to an editor.
+                self::queue($postId, 'manual');
+            }
+        }
+
         self::startNext();
+    }
+
+    /**
+     * Write every open remark's suggestion into the translation, as "Use
+     * suggestion" does one at a time. A remark whose text changed since the
+     * review (two remarks on one text, say) or that has no suggestion stays
+     * open. The review keeps the counts, so the next review can say what was
+     * applied before it.
+     */
+    public static function applyAll(int $postId, string $followup = 'apply'): int
+    {
+        $review = self::get($postId);
+        $applied = 0;
+        $skipped = 0;
+
+        // One write per suggestion; a revision for each would bury the
+        // translation's history under a few dozen near-identical ones.
+        $revisions = has_action('post_updated', 'wp_save_post_revision');
+
+        if ($revisions !== false) {
+            remove_action('post_updated', 'wp_save_post_revision', $revisions);
+        }
+
+        foreach ((array) ($review['remarks'] ?? []) as $remark) {
+            $suggestion = trim((string) ($remark['suggestion'] ?? ''));
+
+            if (($remark['state'] ?? 'open') !== 'open' || $suggestion === '') {
+                continue;
+            }
+
+            $result = self::applyText($postId, (int) $remark['id'], (string) $remark['suggestion'], 'auto');
+            $result === true ? $applied++ : $skipped++;
+        }
+
+        if ($revisions !== false) {
+            add_action('post_updated', 'wp_save_post_revision', $revisions);
+        }
+
+        $review = self::get($postId);
+
+        if ($review) {
+            $review['followup'] = $followup;
+            $review['autoApplied'] = $applied;
+            $review['autoSkipped'] = $skipped;
+            self::store($postId, $review);
+        }
+
+        return $applied;
+    }
+
+    private static function countApplied(int $postId): int
+    {
+        return (int) (self::get($postId)['autoApplied'] ?? 0);
     }
 
     /**
@@ -321,7 +454,7 @@ final class TranslationAudit
      *
      * @return array<string, mixed>
      */
-    public function run(int $postId): array
+    public function run(int $postId, string $pageInstructions = ''): array
     {
         $translation = get_post($postId);
         $source = get_post(self::sourceIdOf($postId));
@@ -342,6 +475,11 @@ final class TranslationAudit
             'remarks' => [],
             'error' => '',
             'usage' => [],
+            // What Claude was told besides the texts, kept to show on the review page.
+            'instructions' => array_filter([
+                'site' => self::cleanInstructions(self::settings()['instructions']),
+                'page' => self::cleanInstructions($pageInstructions),
+            ]),
         ];
 
         $sourceLanguage = $source ? PLL()->model->post->get_language($source->ID) : false;
@@ -842,7 +980,7 @@ final class TranslationAudit
                 ]);
             }
 
-            $result = $this->reviewChunk($review['model'], $source, $sourceLanguage, $targetLanguage, $chunk, $number + 1, count($chunks));
+            $result = $this->reviewChunk($review['model'], $source, $sourceLanguage, $targetLanguage, $chunk, $number + 1, count($chunks), $review['instructions']);
 
             if ($result instanceof WP_Error) {
                 return array_merge($review, ['usage' => $usage, 'error' => $result->get_error_message()]);
@@ -868,7 +1006,10 @@ final class TranslationAudit
      * @param  list<array<string, mixed>>  $segments
      * @return array{summary: string, remarks: array<mixed>, usage: array{input: int, output: int}}|WP_Error
      */
-    private function reviewChunk(string $model, WP_Post $source, PLL_Language $sourceLanguage, PLL_Language $targetLanguage, array $segments, int $part, int $parts): array|WP_Error
+    /**
+     * @param  array{site?: string, page?: string}  $instructions
+     */
+    private function reviewChunk(string $model, WP_Post $source, PLL_Language $sourceLanguage, PLL_Language $targetLanguage, array $segments, int $part, int $parts, array $instructions = []): array|WP_Error
     {
         if (function_exists('set_time_limit')) {
             set_time_limit(self::timeout + 60);
@@ -881,7 +1022,7 @@ final class TranslationAudit
             'max_tokens' => 16000,
             'system' => $this->systemPrompt(),
             'messages' => [
-                ['role' => 'user', 'content' => $this->userPrompt($source, $sourceLanguage, $targetLanguage, $segments, $part, $parts)],
+                ['role' => 'user', 'content' => $this->userPrompt($source, $sourceLanguage, $targetLanguage, $segments, $part, $parts, $instructions)],
             ],
             'output_config' => ['format' => ['type' => 'json_schema', 'schema' => $this->schema()]],
             'fallbacks' => $fallback ? 'default' : null,
@@ -1022,6 +1163,8 @@ Rules for remarks:
 
 For every remark, give the segment number, a short explanation of the problem, and the full corrected translation of that segment as the suggestion, keeping every HTML tag and attribute exactly as in the current translation. Leave the suggestion empty only when no single corrected segment can be given.
 
+The user message can include the editor's instructions: for the whole site, and for this page. Follow them. They come first where they conflict with the general rules above, for example a required term or a tone, and a translation that does not follow them is a problem to report. Suggestions must follow them too. Do not report anything only because an instruction mentions it when the translation already follows it.
+
 Write the summary and the explanations in the language the user message names for the remarks. The summary is one or two sentences on the overall quality of the translation. When the user message says you get one part of a longer page, the summary covers that part in one sentence, and does not mention parts or segment counts.
 PROMPT;
     }
@@ -1029,7 +1172,10 @@ PROMPT;
     /**
      * @param  list<array<string, mixed>>  $segments
      */
-    private function userPrompt(WP_Post $source, PLL_Language $sourceLanguage, PLL_Language $targetLanguage, array $segments, int $part, int $parts): string
+    /**
+     * @param  array{site?: string, page?: string}  $instructions
+     */
+    private function userPrompt(WP_Post $source, PLL_Language $sourceLanguage, PLL_Language $targetLanguage, array $segments, int $part, int $parts, array $instructions = []): string
     {
         $remarkLanguage = match (self::settings()['language']) {
             'source' => sprintf('%s (%s)', $sourceLanguage->name, $sourceLanguage->locale),
@@ -1042,6 +1188,10 @@ PROMPT;
             'source_language' => sprintf('%s (%s)', $sourceLanguage->name, $sourceLanguage->locale),
             'target_language' => sprintf('%s (%s)', $targetLanguage->name, $targetLanguage->locale),
             'remark_language' => $remarkLanguage,
+            'instructions' => array_filter([
+                'site' => $instructions['site'] ?? null,
+                'this_page' => $instructions['page'] ?? null,
+            ]) ?: null,
             'part' => $parts > 1 ? sprintf('Part %d of %d of the page; the segment numbers continue across parts.', $part, $parts) : null,
             'segments' => array_map(static fn (array $segment): array => array_filter([
                 'id' => $segment['id'],

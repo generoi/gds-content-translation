@@ -4,6 +4,7 @@ namespace GeneroWP\ContentTranslation\Actions;
 
 use GeneroWP\ContentTranslation\BulkTranslation;
 use GeneroWP\ContentTranslation\MachineTranslation;
+use GeneroWP\ContentTranslation\TranslationAudit;
 use WP_Error;
 
 if (! defined('ABSPATH')) {
@@ -28,7 +29,18 @@ final class Translate extends BaseAction
             return new WP_Error('gds_ct_unavailable', __('Machine translation is not available.', 'gds-content-translation'), ['status' => 400]);
         }
 
-        return parent::sanitizeArgs($args);
+        $sanitized = parent::sanitizeArgs($args);
+
+        if ($sanitized instanceof WP_Error) {
+            return $sanitized;
+        }
+
+        // What happens with the AI review's suggestions; the site's default when not given.
+        $sanitized['followup'] = TranslationAudit::followup($args['followup'] ?? null);
+        // Optional, for the AI review of these translations, on top of the site's instructions.
+        $sanitized['instructions'] = TranslationAudit::cleanInstructions($args['instructions'] ?? '');
+
+        return $sanitized;
     }
 
     public function can(int $sourceId, array $args): bool
@@ -44,7 +56,7 @@ final class Translate extends BaseAction
             return new WP_Error('gds_ct_invalid', __('The original is in the trash. Restore it before translating it.', 'gds-content-translation'));
         }
 
-        $outcome = BulkTranslation::enqueue([$sourceId], $args['languages'])[$sourceId] ?? [];
+        $outcome = BulkTranslation::enqueue([$sourceId], $args['languages'], MachineTranslation::modeAi, (string) ($args['followup'] ?? ''), (string) ($args['instructions'] ?? ''))[$sourceId] ?? [];
         $counts = array_count_values($outcome);
 
         return [

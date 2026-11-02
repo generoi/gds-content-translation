@@ -11,6 +11,14 @@ export interface Language {
 	isDefault: boolean;
 }
 
+/** What happens with the AI review's suggestions on a new AI translation. */
+export type Followup = 'manual' | 'apply' | 'apply_review';
+
+export interface FollowupOption {
+	label: string;
+	description: string;
+}
+
 export interface PostTypeTab {
 	slug: string;
 	label: string;
@@ -24,6 +32,13 @@ export interface Settings {
 	machineTranslation: boolean;
 	copyTranslation: boolean;
 	review: boolean;
+	/** The site's default follow-up of the review of a new AI translation. */
+	followup: Followup;
+	/** Every follow-up with its title and one line of help, in order. */
+	/** The site's instructions for the AI review (settings), shown as a hint. */
+	instructions: string;
+	instructionsMax: number;
+	followups: Record< Followup, FollowupOption >;
 	/** AI translations are published when their original is. */
 	publish: boolean;
 	createUrl: string;
@@ -46,6 +61,14 @@ const fallback: Settings = {
 	machineTranslation: false,
 	copyTranslation: false,
 	review: false,
+	followup: 'manual',
+	instructions: '',
+	instructionsMax: 4000,
+	followups: {
+		manual: { label: '', description: '' },
+		apply: { label: '', description: '' },
+		apply_review: { label: '', description: '' },
+	},
 	publish: false,
 	createUrl: '',
 	reviewRunUrl: '',

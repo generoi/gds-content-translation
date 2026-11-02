@@ -22,6 +22,12 @@ class BulkTranslationTest extends RestTestCase
     /** @var list<array{0: int, 1: string, 2: int}> Source, language, user. */
     private array $created = [];
 
+    /** @var list<string> */
+    private array $followups = [];
+
+    /** @var list<string> */
+    private array $instructions = [];
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -54,9 +60,11 @@ class BulkTranslationTest extends RestTestCase
     /**
      * Creates the translation as a linked post, as MachineTranslation::create() would.
      */
-    public function fakeCreate(int $sourceId, string $language): int|WP_Error
+    public function fakeCreate(int $sourceId, string $language, string $mode = '', string $followup = '', string $instructions = ''): int|WP_Error
     {
+        $this->instructions[] = $instructions;
         $this->created[] = [$sourceId, $language, get_current_user_id()];
+        $this->followups[] = $followup;
 
         if (get_the_title($sourceId) === 'Fails') {
             return new WP_Error('gds_ct_failed', 'Translation failed: DeepL quota exceeded');
@@ -114,6 +122,23 @@ class BulkTranslationTest extends RestTestCase
         $failed = BulkTranslation::job($second, 'fi');
         $this->assertSame('failed', $failed['status']);
         $this->assertSame('Translation failed: DeepL quota exceeded', $failed['error']);
+    }
+
+    public function test_the_follow_up_chosen_when_queueing_reaches_the_translation(): void
+    {
+        $first = $this->createPost('en', ['post_title' => 'First']);
+        $second = $this->createPost('en', ['post_title' => 'Second']);
+
+        BulkTranslation::enqueue([$first], ['fi'], MachineTranslation::modeAi, 'apply_review', 'Formal tone.');
+        BulkTranslation::enqueue([$second], ['fi'], MachineTranslation::modeAi, 'nonsense');
+        $this->assertSame('apply_review', BulkTranslation::job($first, 'fi')['followup']);
+        $this->assertSame('', BulkTranslation::job($second, 'fi')['followup'], 'Unknown: the site default.');
+
+        BulkTranslation::work(60.0, [$this, 'fakeCreate']);
+
+        $this->assertSame(['apply_review', ''], $this->followups);
+        $this->assertSame(['Formal tone.', ''], $this->instructions);
+        $this->assertSame('apply_review', BulkTranslation::job($first, 'fi')['followup'], 'Kept once done.');
     }
 
     public function test_a_worker_that_runs_out_of_time_hands_over_to_the_next(): void

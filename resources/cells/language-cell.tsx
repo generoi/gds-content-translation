@@ -14,17 +14,19 @@
  * a copy opens the new draft in a new tab, AI translate (with the AI review
  * on) the review page in this one.
  */
-import { DropdownMenu, MenuGroup, MenuItem, VisuallyHidden, __experimentalConfirmDialog as ConfirmDialog } from '@wordpress/components';
+import { Dropdown, DropdownMenu, MenuGroup, MenuItem, VisuallyHidden, __experimentalConfirmDialog as ConfirmDialog } from '@wordpress/components';
 import { speak } from '@wordpress/a11y';
 import { useState } from '@wordpress/element';
 import { __, sprintf } from '@wordpress/i18n';
 import { addQueryArgs } from '@wordpress/url';
 import { getSettings, languageCode } from '../settings';
+import type { Followup } from '../settings';
 import type { Cell, Row } from '../types';
 import { celebrate } from '../ui/celebration';
 import { dismissNotice, notifyError, notifySuccess } from '../ui/notify';
 import { cellKey, useScreen } from '../list/screen-context';
 import { AuditBadge } from './audit-indicator';
+import { FollowupMenu } from '../ui/followup';
 
 const MISSING: Cell = { state: 'missing', postId: 0 };
 
@@ -358,7 +360,7 @@ function MissingCell( { item, slug, name, cell, about }: CellProps ) {
 	 * translation with its AI review. The link stays a plain link for
 	 * opening in another tab.
 	 */
-	const translateHere = () => {
+	const translateHere = ( followup?: Followup, instructions = '' ) => {
 		if ( blocked ) {
 			return;
 		}
@@ -374,7 +376,7 @@ function MissingCell( { item, slug, name, cell, about }: CellProps ) {
 		);
 
 		screen
-			.run( 'translate', [ item.sourceId ], { languages: [ slug ] } )
+			.run( 'translate', [ item.sourceId ], { languages: [ slug ], ...( followup ? { followup } : {} ), ...( instructions ? { instructions } : {} ) } )
 			.then( ( response ) => {
 				if ( ! response.ok ) {
 					notifyError( response.results[ 0 ]?.message || response.message );
@@ -405,6 +407,19 @@ function MissingCell( { item, slug, name, cell, about }: CellProps ) {
 			translateHere();
 		},
 	};
+	const aiLabel = (
+		<>
+			{ job?.status === 'failed' ? __( 'Retry', 'gds-content-translation' ) : __( 'AI translate', 'gds-content-translation' ) }
+			<VisuallyHidden>
+				{ ' ' }
+				{ sprintf(
+					/* translators: %s: e.g. the Swedish translation of "Etusivu" */
+					__( 'Create %s with AI translation', 'gds-content-translation' ),
+					about
+				) }
+			</VisuallyHidden>
+		</>
+	);
 	const copyProps = { href: createUrl( 'copy' ), target: '_blank', rel: 'noopener noreferrer', onClick: create( false ) };
 	const copyTitle = __( 'Create a draft with the untranslated original text', 'gds-content-translation' );
 
@@ -455,18 +470,47 @@ function MissingCell( { item, slug, name, cell, about }: CellProps ) {
 					<VisuallyHidden> { about }</VisuallyHidden>
 				</button>
 			) }
-			{ ! trashed && settings.machineTranslation && (
+			{ ! trashed && settings.machineTranslation && ! settings.review && (
 				<a className="gds-ct__create" { ...aiProps }>
-					{ job?.status === 'failed' ? __( 'Retry', 'gds-content-translation' ) : __( 'AI translate', 'gds-content-translation' ) }
-					<VisuallyHidden>
-						{ ' ' }
-						{ sprintf(
-							/* translators: %s: e.g. the Swedish translation of "Etusivu" */
-							__( 'Create %s with AI translation', 'gds-content-translation' ),
-							about
-						) }
-					</VisuallyHidden>
+					{ aiLabel }
 				</a>
+			) }
+			{ ! trashed && settings.machineTranslation && settings.review && (
+				// With the AI review on, the click asks what to do with its
+				// suggestions; a modified click still opens the plain link.
+				<Dropdown
+					className="gds-ct__followup"
+					popoverProps={ { placement: 'bottom-end', shift: true } }
+					renderToggle={ ( { isOpen, onToggle } ) => (
+						<a
+							className="gds-ct__create"
+							href={ aiProps.href }
+							aria-haspopup="true"
+							aria-expanded={ isOpen }
+							onClick={ ( event ) => {
+								if ( event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0 ) {
+									return;
+								}
+
+								event.preventDefault();
+
+								if ( ! blocked ) {
+									onToggle();
+								}
+							} }
+						>
+							{ aiLabel }
+						</a>
+					) }
+					renderContent={ ( { onClose } ) => (
+						<FollowupMenu
+							onChoose={ ( followup, instructions ) => {
+								onClose();
+								translateHere( followup, instructions );
+							} }
+						/>
+					) }
+				/>
 			) }
 			{ ! trashed && ! settings.machineTranslation && settings.copyTranslation && (
 				<a className="gds-ct__create" { ...copyProps } title={ copyTitle }>

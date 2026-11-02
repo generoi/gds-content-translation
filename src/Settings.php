@@ -87,12 +87,15 @@ class Settings
 
         $model = Request::key($_POST, 'gds_ct_audit_model');
         $language = Request::key($_POST, 'gds_ct_audit_language');
+        $followup = Request::key($_POST, 'gds_ct_audit_followup');
 
         update_option(TranslationAudit::optionKey, [
             'enabled' => isset($_POST['gds_ct_audit_enabled']),
             'model' => isset(TranslationAudit::models()[$model]) ? $model : TranslationAudit::defaultModel,
             'language' => isset(TranslationAudit::remarkLanguages()[$language]) ? $language : 'target',
             'notes' => isset($_POST['gds_ct_audit_notes']),
+            'followup' => in_array($followup, TranslationAudit::followups, true) ? $followup : 'manual',
+            'instructions' => TranslationAudit::cleanInstructions(wp_unslash($_POST['gds_ct_audit_instructions'] ?? '')),
         ]);
 
         add_settings_error('gds_content_translation', 'settings_updated', __('Settings saved.', 'gds-content-translation'), 'success');
@@ -166,7 +169,7 @@ class Settings
                 </table>
 
                 <h2><?php echo esc_html__('AI review', 'gds-content-translation'); ?></h2>
-                <p><?php echo esc_html__('After an AI translation, Claude compares its content and ACF text fields with the original, in the background. Its remarks show on the status screen, on the review page and as notes in the editor; the translation only changes when someone uses a suggestion.', 'gds-content-translation'); ?></p>
+                <p><?php echo esc_html__('After an AI translation, Claude compares its content and ACF text fields with the original, in the background. Its remarks show on the status screen, on the review page and as notes in the editor; the translation only changes when someone uses a suggestion, or when the suggestions are set to be applied automatically (below).', 'gds-content-translation'); ?></p>
                 <?php if ($keySource === '') { ?>
                     <div class="notice notice-warning inline"><p><?php echo esc_html__('No Claude API key found. Set ANTHROPIC_API_KEY in the site environment (.env) to turn on the AI review.', 'gds-content-translation'); ?></p></div>
                 <?php } else { ?>
@@ -208,6 +211,31 @@ class Settings
                                     <?php } ?>
                                 </select>
                                 <p class="description"><?php echo esc_html__('The translation’s language suits a translator working into it.', 'gds-content-translation'); ?></p>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th scope="row"><?php echo esc_html__('Default way to AI translate', 'gds-content-translation'); ?></th>
+                            <td>
+                                <fieldset>
+                                    <legend class="screen-reader-text"><?php echo esc_html__('Default way to AI translate', 'gds-content-translation'); ?></legend>
+                                    <?php foreach (TranslationAudit::followupOptions() as $value => $option) { ?>
+                                        <div style="margin-bottom: 10px;">
+                                            <label style="margin-bottom: 0;">
+                                                <input type="radio" name="gds_ct_audit_followup" value="<?php echo esc_attr($value); ?>" aria-describedby="gds-ct-followup-<?php echo esc_attr($value); ?>" <?php checked($audit['followup'], $value); ?>>
+                                                <strong><?php echo esc_html($option['label']); ?></strong>
+                                            </label>
+                                            <p id="gds-ct-followup-<?php echo esc_attr($value); ?>" class="description" style="margin: 2px 0 0 24px;"><?php echo esc_html($option['description']); ?></p>
+                                        </div>
+                                    <?php } ?>
+                                </fieldset>
+                                <p class="description"><?php echo esc_html__('What happens with the AI review’s suggestions. It can be chosen each time on the status screen.', 'gds-content-translation'); ?></p>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th scope="row"><label for="gds-ct-audit-instructions"><?php echo esc_html__('Instructions for the AI review', 'gds-content-translation'); ?></label></th>
+                            <td>
+                                <textarea id="gds-ct-audit-instructions" name="gds_ct_audit_instructions" class="large-text" rows="6" maxlength="<?php echo esc_attr((string) TranslationAudit::instructionsMax); ?>" placeholder="<?php echo esc_attr__('For example: “Braces” is always “väggstag” in Swedish. Product names such as Hammer Down stay in English. Use informal “du”.', 'gds-content-translation'); ?>"><?php echo esc_textarea($audit['instructions']); ?></textarea>
+                                <p class="description"><?php echo esc_html__('Sent with every review: required terms, names that stay untranslated, tone. The review reports a translation that does not follow them, and its suggestions follow them. Instructions for one translation can be added when starting it.', 'gds-content-translation'); ?></p>
                             </td>
                         </tr>
                     </tbody>

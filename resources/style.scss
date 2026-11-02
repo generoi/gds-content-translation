@@ -541,6 +541,196 @@ $chip: 22px;
 	}
 }
 
+// The three ways to start an AI translation (with the AI review on): an
+// icon, a short title and one line of help each. The cell's menu sits in a
+// popover outside .gds-ct, the bulk dialog's radio cards in its modal.
+.gds-ct__followup-menu {
+	width: 312px;
+	max-width: calc(100vw - 32px);
+
+	.components-menu-group__label {
+		margin-bottom: 0;
+		padding-bottom: 4px;
+	}
+}
+
+.gds-ct__followup-item.components-button {
+	align-items: flex-start;
+	gap: 10px;
+	height: auto;
+	min-height: 0;
+	padding: 8px;
+	text-align: left;
+
+	svg {
+		flex-shrink: 0;
+		margin: 0;
+		fill: $muted;
+	}
+
+	.components-menu-item__item {
+		min-width: 0;
+		white-space: normal;
+	}
+
+	.components-menu-item__info-wrapper {
+		align-items: flex-start;
+		flex: 1;
+		min-width: 0;
+	}
+
+	.components-menu-item__info {
+		margin-top: 2px;
+		line-height: 1.4;
+		color: $subtle;
+	}
+
+	&:hover:not(:disabled) {
+		background: #f6f7f7;
+		color: inherit;
+
+		svg {
+			fill: var(--wp-admin-theme-color, #{$link});
+		}
+	}
+
+	// The menu moves focus to its first item when it opens; only a keyboard
+	// user gets the ring, so the first way does not look chosen already.
+	&:focus:not(:focus-visible) {
+		box-shadow: none;
+		outline: none;
+	}
+}
+
+.gds-ct__followup-title {
+	font-weight: 600;
+	line-height: 1.4;
+}
+
+.gds-ct__default-tag {
+	display: inline-block;
+	margin-left: 6px;
+	padding: 0 6px;
+	border-radius: 2px;
+	background: #f0f0f1;
+	color: $muted;
+	font-size: 11px;
+	font-weight: 500;
+	line-height: 18px;
+	vertical-align: 1px;
+}
+
+.gds-ct__followup-radios {
+	margin: 0 0 16px;
+	padding: 0;
+	border: 0;
+
+	legend {
+		margin-bottom: 8px;
+		padding: 0;
+		font-size: 11px;
+		font-weight: 500;
+		line-height: 1.4;
+		text-transform: uppercase;
+	}
+}
+
+.gds-ct__followup-card {
+	position: relative;
+	display: flex;
+	align-items: flex-start;
+	gap: 10px;
+	margin-top: -1px;
+	padding: 10px 12px;
+	border: 1px solid $border;
+	cursor: pointer;
+
+	&:first-of-type {
+		margin-top: 0;
+		border-radius: 2px 2px 0 0;
+	}
+
+	&:last-of-type {
+		border-radius: 0 0 2px 2px;
+	}
+
+	&:hover {
+		background: #f6f7f7;
+	}
+
+	&:has(input:checked) {
+		z-index: 1;
+		border-color: var(--wp-admin-theme-color, #{$link});
+		background: #f0f6fc;
+
+		.gds-ct__followup-icon svg {
+			fill: var(--wp-admin-theme-color, #{$link});
+		}
+	}
+
+	&:has(input:focus-visible) {
+		z-index: 2;
+		box-shadow: 0 0 0 1.5px var(--wp-admin-theme-color, #{$link});
+	}
+
+	input[type='radio'] {
+		flex-shrink: 0;
+		margin: 2px 0 0;
+	}
+}
+
+.gds-ct__followup-icon {
+	display: flex;
+	flex-shrink: 0;
+	margin-top: -1px;
+
+	svg {
+		width: 24px;
+		height: 24px;
+		fill: $muted;
+	}
+}
+
+.gds-ct__followup-text {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	min-width: 0;
+}
+
+.gds-ct__followup-help {
+	color: $subtle;
+	font-size: 12px;
+	line-height: 1.4;
+}
+
+// Under the menu's three ways: optional instructions for the AI review,
+// folded behind a link. Same width as the menu above it.
+.gds-ct__followup-instructions {
+	width: 312px;
+	max-width: calc(100vw - 32px);
+	box-sizing: border-box;
+	margin-top: 4px;
+	padding: 8px 12px 4px;
+	border-top: 1px solid #e0e0e0;
+}
+
+.gds-ct__instructions-toggle.components-button.is-link {
+	font-size: 12px;
+	text-decoration: none;
+
+	&:hover,
+	&:focus {
+		text-decoration: underline;
+	}
+}
+
+// In the bulk dialog, below the radio cards.
+.gds-ct__modal .gds-ct__instructions-toggle,
+.gds-ct__modal .gds-ct__instructions {
+	margin-top: 12px;
+}
+
 // One canvas for the page, never removed; shown by an inline style while a burst runs.
 .gds-ct__celebration {
 	position: fixed;
