@@ -101,13 +101,13 @@ add_filter('gds_content_translation_excluded_post_types', function (array $postT
 
 When a translation is created with **AI translation**, Claude compares its **post content and ACF text fields** (text, textarea, WYSIWYG; repeater rows included) with the original. Title, excerpt, other metas and terms are not reviewed, and Copy original is never reviewed. The translation itself only changes when an editor uses a suggestion, unless the suggestions are applied automatically (below).
 
-What happens after the review of a new AI translation is chosen when translating: **AI translate** in a cell opens a menu, and the bulk **AI translation…** dialog has the same choice:
+What happens after the review of a new AI translation is chosen when translating: **AI translate** in a cell opens a *Start AI translation* menu, and the bulk **AI translation…** dialog has the same three choices (*How to AI translate*):
 
-- **Review the remarks manually**: an editor goes through them on the review page (as before).
-- **Apply every suggestion automatically**: every remark with a suggestion is written into the translation, as **Use suggestion** does, and marked *Fixed: suggestion applied automatically*. A remark without a suggestion, or whose text changed in between, stays open. No revision is saved per suggestion.
-- **Apply every suggestion, then review again**: as above, then the translation is reviewed once more; that second review's remarks are left to an editor, and its page says how many suggestions were applied before it.
+- **Translate, I’ll review**: an editor goes through them on the review page (as before).
+- **Translate and fix automatically**: every remark with a suggestion is written into the translation, as **Use suggestion** does, and marked *Fixed: suggestion applied automatically*. A remark without a suggestion, or whose text changed in between, stays open. No revision is saved per suggestion.
+- **Translate, fix, then check again**: as above, then the translation is reviewed once more; that second review's remarks are left to an editor, and its page says how many suggestions were applied before it.
 
-The default is set under Content translation settings → *After the review of an AI translation* (manual unless changed). The REST action takes it as `args.followup` (`manual`, `apply`, `apply_review`); a link to the old admin-post handler uses the default.
+The default is set under Content translation settings → *Default way to AI translate* (manual unless changed). The REST action takes it as `args.followup` (`manual`, `apply`, `apply_review`); a link to the old admin-post handler uses the default.
 
 - The review runs **in the background** once the translation is saved, so the editor opens without waiting. A non-blocking request to `admin-ajax.php` (authorised by a one-time token) starts it at once; a WP-Cron event two minutes later is the fallback. A review that has not finished after 10 minutes shows as *did not finish*.
 - Original and translation are paired with Polylang Pro's own translation walker, top-level block by top-level block, repeated texts included. Texts in blocks that were added, removed or moved count as *not matched* and are not reviewed. Claude gets numbered `{id, source, translation}` pairs plus the page title and both languages.

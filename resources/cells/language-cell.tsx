@@ -26,6 +26,7 @@ import { celebrate } from '../ui/celebration';
 import { dismissNotice, notifyError, notifySuccess } from '../ui/notify';
 import { cellKey, useScreen } from '../list/screen-context';
 import { AuditBadge } from './audit-indicator';
+import { FollowupMenu } from '../ui/followup';
 
 const MISSING: Cell = { state: 'missing', postId: 0 };
 
@@ -479,7 +480,7 @@ function MissingCell( { item, slug, name, cell, about }: CellProps ) {
 				// suggestions; a modified click still opens the plain link.
 				<Dropdown
 					className="gds-ct__followup"
-					popoverProps={ { placement: 'bottom-start' } }
+					popoverProps={ { placement: 'bottom-end', shift: true } }
 					renderToggle={ ( { isOpen, onToggle } ) => (
 						<a
 							className="gds-ct__create"
@@ -502,20 +503,12 @@ function MissingCell( { item, slug, name, cell, about }: CellProps ) {
 						</a>
 					) }
 					renderContent={ ( { onClose } ) => (
-						<MenuGroup label={ __( 'After the AI review', 'gds-content-translation' ) }>
-							{ ( Object.keys( settings.followups ) as Followup[] ).map( ( followup ) => (
-								<MenuItem
-									key={ followup }
-									info={ followup === settings.followup ? __( 'Default', 'gds-content-translation' ) : undefined }
-									onClick={ () => {
-										onClose();
-										translateHere( followup );
-									} }
-								>
-									{ settings.followups[ followup ] }
-								</MenuItem>
-							) ) }
-						</MenuGroup>
+						<FollowupMenu
+							onChoose={ ( followup ) => {
+								onClose();
+								translateHere( followup );
+							} }
+						/>
 					) }
 				/>
 			) }

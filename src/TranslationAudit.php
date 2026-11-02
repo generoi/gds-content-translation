@@ -104,14 +104,26 @@ final class TranslationAudit
      * @return array<string, string>
      */
     /**
-     * @return array<string, string>
+     * The choices for what happens after the review of a new AI translation:
+     * a short title and one line of help each, in the order they are shown.
+     *
+     * @return array<string, array{label: string, description: string}>
      */
-    public static function followupLabels(): array
+    public static function followupOptions(): array
     {
         return [
-            'manual' => __('Review the remarks manually', 'gds-content-translation'),
-            'apply' => __('Apply every suggestion automatically', 'gds-content-translation'),
-            'apply_review' => __('Apply every suggestion, then review again', 'gds-content-translation'),
+            'manual' => [
+                'label' => __('Translate, I’ll review', 'gds-content-translation'),
+                'description' => __('You go through the AI remarks.', 'gds-content-translation'),
+            ],
+            'apply' => [
+                'label' => __('Translate and fix automatically', 'gds-content-translation'),
+                'description' => __('Every AI suggestion is applied.', 'gds-content-translation'),
+            ],
+            'apply_review' => [
+                'label' => __('Translate, fix, then check again', 'gds-content-translation'),
+                'description' => __('Suggestions applied, then a second review.', 'gds-content-translation'),
+            ],
         ];
     }
 

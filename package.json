@@ -11,7 +11,8 @@
     "lint:types": "tsc --noEmit"
   },
   "dependencies": {
-    "@wordpress/dataviews": "20.0.0"
+    "@wordpress/dataviews": "20.0.0",
+    "@wordpress/icons": "18.0.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.0",

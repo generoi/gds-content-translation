@@ -213,19 +213,21 @@ class Settings
                             </td>
                         </tr>
                         <tr>
-                            <th scope="row"><?php echo esc_html__('After the review of an AI translation', 'gds-content-translation'); ?></th>
+                            <th scope="row"><?php echo esc_html__('Default way to AI translate', 'gds-content-translation'); ?></th>
                             <td>
                                 <fieldset>
-                                    <legend class="screen-reader-text"><?php echo esc_html__('After the review of an AI translation', 'gds-content-translation'); ?></legend>
-                                    <?php foreach (TranslationAudit::followupLabels() as $value => $label) { ?>
-                                        <label>
-                                            <input type="radio" name="gds_ct_audit_followup" value="<?php echo esc_attr($value); ?>" <?php checked($audit['followup'], $value); ?>>
-                                            <?php echo esc_html($label); ?>
-                                        </label>
-                                        <br>
+                                    <legend class="screen-reader-text"><?php echo esc_html__('Default way to AI translate', 'gds-content-translation'); ?></legend>
+                                    <?php foreach (TranslationAudit::followupOptions() as $value => $option) { ?>
+                                        <div style="margin-bottom: 10px;">
+                                            <label style="margin-bottom: 0;">
+                                                <input type="radio" name="gds_ct_audit_followup" value="<?php echo esc_attr($value); ?>" aria-describedby="gds-ct-followup-<?php echo esc_attr($value); ?>" <?php checked($audit['followup'], $value); ?>>
+                                                <strong><?php echo esc_html($option['label']); ?></strong>
+                                            </label>
+                                            <p id="gds-ct-followup-<?php echo esc_attr($value); ?>" class="description" style="margin: 2px 0 0 24px;"><?php echo esc_html($option['description']); ?></p>
+                                        </div>
                                     <?php } ?>
                                 </fieldset>
-                                <p class="description"><?php echo esc_html__('The default when AI translating. It can be chosen each time on the status screen.', 'gds-content-translation'); ?></p>
+                                <p class="description"><?php echo esc_html__('What happens with the AI review’s suggestions. It can be chosen each time on the status screen.', 'gds-content-translation'); ?></p>
                             </td>
                         </tr>
                     </tbody>

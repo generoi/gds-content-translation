@@ -13,7 +13,8 @@
 		'wp-hooks',
 		'wp-i18n',
 		'wp-notices',
+		'wp-primitives',
 		'wp-url'
 	),
-	'version' => '1d0dc5d8fb49c72f918a'
+	'version' => 'f9a16a8f31cea6bf8de9'
 );
