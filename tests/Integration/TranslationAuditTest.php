@@ -284,6 +284,99 @@ class TranslationAuditTest extends AdminActionTestCase
     /**
      * @return array<string, int>
      */
+    /**
+     * Two remarks with suggestions, one without: what a follow-up has to apply.
+     *
+     * @return array<string, mixed>
+     */
+    private function remarksToApply(): array
+    {
+        return $this->claudeAnswers(['summary' => 'Two.', 'remarks' => [
+            ['segment' => 3, 'severity' => 'error', 'category' => 'grammar', 'issue' => 'Missing umlauts.', 'suggestion' => 'Lue lisää'],
+            ['segment' => 1, 'severity' => 'warning', 'category' => 'fluency', 'issue' => 'Stiff.', 'suggestion' => 'Terve <strong>maailma</strong>'],
+            ['segment' => 2, 'severity' => 'warning', 'category' => 'tone', 'issue' => 'Hard to say how.', 'suggestion' => ''],
+        ]]);
+    }
+
+    public function test_manual_follow_up_leaves_the_remarks_to_an_editor(): void
+    {
+        $ids = $this->translation();
+        $this->claudeResponse = $this->remarksToApply();
+
+        TranslationAudit::queue($ids['fi'], 'manual');
+        do_action('gds_content_translation_run_audit', $ids['fi']);
+
+        $this->assertSame(['open', 'open', 'open'], array_column(TranslationAudit::get($ids['fi'])['remarks'], 'state'));
+        $this->assertStringContainsString('Lue lisaa', get_post($ids['fi'])->post_content);
+    }
+
+    public function test_apply_follow_up_writes_every_suggestion_into_the_translation(): void
+    {
+        $ids = $this->translation();
+        $this->claudeResponse = $this->remarksToApply();
+        $revisionsBefore = count(wp_get_post_revisions($ids['fi']));
+
+        TranslationAudit::queue($ids['fi'], 'apply');
+        do_action('gds_content_translation_run_audit', $ids['fi']);
+
+        $content = get_post($ids['fi'])->post_content;
+        $this->assertStringContainsString('Terve <strong>maailma</strong>', $content);
+        $this->assertStringNotContainsString('Lue lisaa', $content);
+
+        $review = TranslationAudit::get($ids['fi']);
+        $this->assertSame('done', $review['status']);
+        $this->assertSame(2, $review['autoApplied']);
+        $this->assertSame(0, $review['autoSkipped']);
+        // The remark without a suggestion stays for an editor.
+        $bySegment = array_column($review['remarks'], null, 'segment');
+        ksort($bySegment);
+        $this->assertSame([1 => 'resolved', 2 => 'open', 3 => 'resolved'], array_map(static fn (array $remark) => $remark['state'], $bySegment));
+        $this->assertSame([1 => 'auto', 2 => '', 3 => 'auto'], array_map(static fn (array $remark) => $remark['resolution'] ?? '', $bySegment));
+        // Still counts as reviewed: the content hash follows the applied text.
+        $this->assertSame(TranslationAudit::contentHash($ids['fi']), $review['contentHash']);
+        $this->assertCount($revisionsBefore, wp_get_post_revisions($ids['fi']));
+        // No second review.
+        $this->assertCount(1, $this->claudeRequests);
+    }
+
+    public function test_apply_and_review_follow_up_runs_one_more_review_left_to_an_editor(): void
+    {
+        $ids = $this->translation();
+        $this->claudeResponse = $this->remarksToApply();
+
+        TranslationAudit::queue($ids['fi'], 'apply_review');
+        do_action('gds_content_translation_run_audit', $ids['fi']);
+
+        // Applied, then queued again.
+        $this->assertSame('pending', TranslationAudit::get($ids['fi'])['status']);
+        $this->assertSame('manual', TranslationAudit::get($ids['fi'])['followup']);
+        $this->assertSame(2, TranslationAudit::get($ids['fi'])['appliedBefore']);
+
+        // The second review sees the applied text, and its remarks stay open.
+        $this->claudeResponse = $this->claudeAnswers(['summary' => 'One left.', 'remarks' => [
+            ['segment' => 2, 'severity' => 'suggestion', 'category' => 'tone', 'issue' => 'Could be warmer.', 'suggestion' => 'Lue vielä lisää'],
+        ]]);
+        do_action('gds_content_translation_run_audit', $ids['fi']);
+
+        $payload = json_decode($this->claudeRequests[1]['body']['messages'][0]['content'], true);
+        $this->assertSame(['Terve <strong>maailma</strong>', 'Lue lisää', 'Lue lisää'], array_column($payload['segments'], 'translation'));
+
+        $review = TranslationAudit::get($ids['fi']);
+        $this->assertSame('done', $review['status']);
+        $this->assertSame(2, $review['appliedBefore']);
+        $this->assertSame(['open'], array_column($review['remarks'], 'state'));
+        $this->assertCount(2, $this->claudeRequests);
+    }
+
+    public function test_the_follow_up_falls_back_to_the_site_default(): void
+    {
+        $this->assertSame('manual', TranslationAudit::followup(null));
+        update_option(TranslationAudit::optionKey, ['followup' => 'apply_review']);
+        $this->assertSame('apply_review', TranslationAudit::followup('nonsense'));
+        $this->assertSame('apply', TranslationAudit::followup('apply'));
+        delete_option(TranslationAudit::optionKey);
+    }
+
     private function reviewedTranslation(): array
     {
         $ids = $this->translation();

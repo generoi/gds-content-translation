@@ -362,6 +362,33 @@ final class AuditReview
             </p></div>
         <?php } ?>
 
+        <?php if ((int) ($review['autoApplied'] ?? 0) > 0 || (int) ($review['autoSkipped'] ?? 0) > 0) { ?>
+            <div class="notice notice-info inline"><p>
+                <?php echo esc_html(sprintf(
+                    /* translators: %d: number of suggestions */
+                    _n('%d suggestion was applied automatically after this review.', '%d suggestions were applied automatically after this review.', (int) ($review['autoApplied'] ?? 0), 'gds-content-translation'),
+                    (int) ($review['autoApplied'] ?? 0)
+                )); ?>
+                <?php if ((int) ($review['autoSkipped'] ?? 0) > 0) {
+                    echo ' '.esc_html(sprintf(
+                        /* translators: %d: number of remarks */
+                        _n('%d could not be (its text had changed) and is still open.', '%d could not be (their texts had changed) and are still open.', (int) $review['autoSkipped'], 'gds-content-translation'),
+                        (int) $review['autoSkipped']
+                    ));
+                } ?>
+            </p></div>
+        <?php } ?>
+
+        <?php if ((int) ($review['appliedBefore'] ?? 0) > 0) { ?>
+            <div class="notice notice-info inline"><p>
+                <?php echo esc_html(sprintf(
+                    /* translators: %d: number of suggestions */
+                    _n('This is a second review: the first one’s %d suggestion was applied automatically before it.', 'This is a second review: the first one’s %d suggestions were applied automatically before it.', (int) $review['appliedBefore'], 'gds-content-translation'),
+                    (int) $review['appliedBefore']
+                )); ?>
+            </p></div>
+        <?php } ?>
+
         <?php if ((int) ($review['unaligned'] ?? 0) > 0) { ?>
             <div class="notice notice-info inline"><p>
                 <?php echo esc_html(sprintf(
@@ -599,6 +626,7 @@ final class AuditReview
         return match ($remark['resolution'] ?? '') {
             'suggestion' => __('Fixed: suggestion used', 'gds-content-translation'),
             'edited' => __('Fixed: edited', 'gds-content-translation'),
+            'auto' => __('Fixed: suggestion applied automatically', 'gds-content-translation'),
             default => __('Fixed', 'gds-content-translation'),
         };
     }

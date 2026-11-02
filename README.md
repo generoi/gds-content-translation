@@ -99,7 +99,15 @@ add_filter('gds_content_translation_excluded_post_types', function (array $postT
 
 ### AI review of machine translations
 
-When a translation is created with **AI translation**, Claude compares its **post content and ACF text fields** (text, textarea, WYSIWYG; repeater rows included) with the original. Title, excerpt, other metas and terms are not reviewed, and Copy original is never reviewed. The translation itself only changes when an editor uses a suggestion.
+When a translation is created with **AI translation**, Claude compares its **post content and ACF text fields** (text, textarea, WYSIWYG; repeater rows included) with the original. Title, excerpt, other metas and terms are not reviewed, and Copy original is never reviewed. The translation itself only changes when an editor uses a suggestion, unless the suggestions are applied automatically (below).
+
+What happens after the review of a new AI translation is chosen when translating: **AI translate** in a cell opens a menu, and the bulk **AI translation…** dialog has the same choice:
+
+- **Review the remarks manually**: an editor goes through them on the review page (as before).
+- **Apply every suggestion automatically**: every remark with a suggestion is written into the translation, as **Use suggestion** does, and marked *Fixed: suggestion applied automatically*. A remark without a suggestion, or whose text changed in between, stays open. No revision is saved per suggestion.
+- **Apply every suggestion, then review again**: as above, then the translation is reviewed once more; that second review's remarks are left to an editor, and its page says how many suggestions were applied before it.
+
+The default is set under Content translation settings → *After the review of an AI translation* (manual unless changed). The REST action takes it as `args.followup` (`manual`, `apply`, `apply_review`); a link to the old admin-post handler uses the default.
 
 - The review runs **in the background** once the translation is saved, so the editor opens without waiting. A non-blocking request to `admin-ajax.php` (authorised by a one-time token) starts it at once; a WP-Cron event two minutes later is the fallback. A review that has not finished after 10 minutes shows as *did not finish*.
 - Original and translation are paired with Polylang Pro's own translation walker, top-level block by top-level block, repeated texts included. Texts in blocks that were added, removed or moved count as *not matched* and are not reviewed. Claude gets numbered `{id, source, translation}` pairs plus the page title and both languages.
@@ -335,6 +343,11 @@ wp-env run, so a `composer update` on a newer PHP cannot pick dev packages they
 cannot install. It does not change the plugin's own PHP requirement.
 
 ## Changelog
+
+### 1.3.0
+
+- **Choose what happens after the AI review** when AI translating, in the cell's menu and the bulk dialog: review the remarks manually, apply every suggestion automatically, or apply them and review once more. The default is a new setting.
+- The bulk translation and AI review workers load Polylang's admin side (`pll_ajax_backend`). As front-end AJAX requests they had no current language, and copying a translation's media failed with "Attempt to read property "locale" on null" where warnings become exceptions (Acorn with `WP_DEBUG`).
 
 ### 1.2.0
 

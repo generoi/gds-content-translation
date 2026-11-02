@@ -179,7 +179,7 @@ class MachineTranslation
      * @param  list<string>  $warnings  Filled with what went wrong in a translation that was still created.
      * @return int|WP_Error The new translation's ID.
      */
-    public static function create(int $sourceId, string $langSlug, string $mode = self::modeAi, ?array &$warnings = null): int|WP_Error
+    public static function create(int $sourceId, string $langSlug, string $mode = self::modeAi, ?array &$warnings = null, string $followup = ''): int|WP_Error
     {
         $warnings = [];
         $sourcePost = $sourceId > 0 ? get_post($sourceId) : null;
@@ -250,7 +250,7 @@ class MachineTranslation
                 $unlinked = true;
             }
 
-            $translationId = $creator->translatePost($sourcePost, $language, $client, $warnings);
+            $translationId = $creator->translatePost($sourcePost, $language, $client, $warnings, TranslationAudit::followup($followup));
         } catch (Throwable $e) {
             error_log(sprintf('[gds-content-translation] Creating the %s translation of post %d failed: %s', $langSlug, $sourceId, $e));
             $translationId = new WP_Error('gds_ct_exception', $e->getMessage());
@@ -300,7 +300,7 @@ class MachineTranslation
     /**
      * @param  list<string>  $warnings
      */
-    private function translatePost(WP_Post $sourcePost, object $targetLang, Client_Interface $client, array &$warnings): int|WP_Error
+    private function translatePost(WP_Post $sourcePost, object $targetLang, Client_Interface $client, array &$warnings, string $followup = 'manual'): int|WP_Error
     {
         $polylang = PLL();
 
@@ -360,7 +360,7 @@ class MachineTranslation
         // Reviewed in the background, so the editor opens without waiting for
         // it. A copy of the source has nothing to review.
         if (! $client instanceof SourceCopyClient && TranslationAudit::isEnabled()) {
-            TranslationAudit::queue($translationId);
+            TranslationAudit::queue($translationId, $followup);
         }
 
         return $translationId;

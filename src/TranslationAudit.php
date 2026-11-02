@@ -41,6 +41,14 @@ final class TranslationAudit
 
     public const remarkStates = ['open', 'resolved', 'dismissed'];
 
+    /**
+     * What happens once the review of a new AI translation is done: an editor
+     * goes through the remarks, every suggestion is written into the
+     * translation, or the suggestions are written in and the translation is
+     * reviewed once more (that second review is left to an editor).
+     */
+    public const followups = ['manual', 'apply', 'apply_review'];
+
     /** Seconds after which a queued review that never finished counts as stuck. */
     public const stuckAfter = 600;
 
@@ -95,6 +103,26 @@ final class TranslationAudit
      *
      * @return array<string, string>
      */
+    /**
+     * @return array<string, string>
+     */
+    public static function followupLabels(): array
+    {
+        return [
+            'manual' => __('Review the remarks manually', 'gds-content-translation'),
+            'apply' => __('Apply every suggestion automatically', 'gds-content-translation'),
+            'apply_review' => __('Apply every suggestion, then review again', 'gds-content-translation'),
+        ];
+    }
+
+    /**
+     * A follow-up from a request, or the site's default when it is not one.
+     */
+    public static function followup(mixed $value): string
+    {
+        return is_string($value) && in_array($value, self::followups, true) ? $value : self::settings()['followup'];
+    }
+
     public static function remarkLanguages(): array
     {
         return [
@@ -113,12 +141,14 @@ final class TranslationAudit
         $saved = is_array($saved) ? $saved : [];
         $model = is_string($saved['model'] ?? null) && isset(self::models()[$saved['model']]) ? $saved['model'] : self::defaultModel;
         $language = is_string($saved['language'] ?? null) && isset(self::remarkLanguages()[$saved['language']]) ? $saved['language'] : 'target';
+        $followup = is_string($saved['followup'] ?? null) && in_array($saved['followup'], self::followups, true) ? $saved['followup'] : 'manual';
 
         return [
             'enabled' => (bool) ($saved['enabled'] ?? true),
             'model' => $model,
             'language' => $language,
             'notes' => (bool) ($saved['notes'] ?? true),
+            'followup' => $followup,
         ];
     }
 
@@ -155,7 +185,7 @@ final class TranslationAudit
      * pages would otherwise start a hundred PHP processes): beyond that a
      * review waits, and each finished review starts the next waiting one.
      */
-    public static function queue(int $postId): void
+    public static function queue(int $postId, string $followup = 'manual'): void
     {
         $sourceId = self::sourceIdOf($postId);
 
@@ -172,6 +202,9 @@ final class TranslationAudit
             'queuedAt' => time(),
             'sourceId' => $sourceId,
             'requestedBy' => get_current_user_id() ?: (int) ($previous['requestedBy'] ?? 0),
+            'followup' => in_array($followup, self::followups, true) ? $followup : 'manual',
+            // A review after suggestions were applied automatically says so.
+            'appliedBefore' => ($previous['followup'] ?? '') === 'apply_review' ? (int) ($previous['autoApplied'] ?? 0) : 0,
             // The editor notes of the review this one replaces, removed when it runs.
             'previousNotes' => array_merge(
                 array_values(array_filter(array_map('intval', array_column((array) ($previous['remarks'] ?? []), 'noteId')))),
@@ -310,13 +343,79 @@ final class TranslationAudit
         AuditNotes::remove($postId, array_map('intval', (array) ($queued['previousNotes'] ?? [])));
         $review = $this->run($postId);
         $review['requestedBy'] = (int) ($queued['requestedBy'] ?? 0);
+        $review['appliedBefore'] = (int) ($queued['appliedBefore'] ?? 0);
 
         if ($review['status'] === 'done' && self::settings()['notes']) {
             $review = AuditNotes::add($postId, $review);
         }
 
         self::store($postId, $review);
+
+        $followup = (string) ($queued['followup'] ?? 'manual');
+
+        if ($review['status'] === 'done' && in_array($followup, ['apply', 'apply_review'], true)) {
+            self::applyAll($postId, $followup);
+
+            if ($followup === 'apply_review' && self::countApplied($postId) > 0) {
+                // Checks the text as it is now; what it finds is left to an editor.
+                self::queue($postId, 'manual');
+            }
+        }
+
         self::startNext();
+    }
+
+    /**
+     * Write every open remark's suggestion into the translation, as "Use
+     * suggestion" does one at a time. A remark whose text changed since the
+     * review (two remarks on one text, say) or that has no suggestion stays
+     * open. The review keeps the counts, so the next review can say what was
+     * applied before it.
+     */
+    public static function applyAll(int $postId, string $followup = 'apply'): int
+    {
+        $review = self::get($postId);
+        $applied = 0;
+        $skipped = 0;
+
+        // One write per suggestion; a revision for each would bury the
+        // translation's history under a few dozen near-identical ones.
+        $revisions = has_action('post_updated', 'wp_save_post_revision');
+
+        if ($revisions !== false) {
+            remove_action('post_updated', 'wp_save_post_revision', $revisions);
+        }
+
+        foreach ((array) ($review['remarks'] ?? []) as $remark) {
+            $suggestion = trim((string) ($remark['suggestion'] ?? ''));
+
+            if (($remark['state'] ?? 'open') !== 'open' || $suggestion === '') {
+                continue;
+            }
+
+            $result = self::applyText($postId, (int) $remark['id'], (string) $remark['suggestion'], 'auto');
+            $result === true ? $applied++ : $skipped++;
+        }
+
+        if ($revisions !== false) {
+            add_action('post_updated', 'wp_save_post_revision', $revisions);
+        }
+
+        $review = self::get($postId);
+
+        if ($review) {
+            $review['followup'] = $followup;
+            $review['autoApplied'] = $applied;
+            $review['autoSkipped'] = $skipped;
+            self::store($postId, $review);
+        }
+
+        return $applied;
+    }
+
+    private static function countApplied(int $postId): int
+    {
+        return (int) (self::get($postId)['autoApplied'] ?? 0);
     }
 
     /**

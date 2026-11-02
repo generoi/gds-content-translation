@@ -13,7 +13,7 @@ import type { ScreenContextValue } from '../list/screen-context';
 /** What the actions need from the screen; all stable, so the actions are built once. */
 export type ActionOps = Pick< ScreenContextValue, 'run' | 'refresh' | 'followJobs' >;
 import { getSettings, translationLanguages } from '../settings';
-import type { Settings } from '../settings';
+import type { Followup, Settings } from '../settings';
 import type { Cell, Row } from '../types';
 import { notifySuccess } from '../ui/notify';
 
@@ -60,6 +60,8 @@ function LanguageModal( { items, closeModal, onActionPerformed, mode, screen }: 
 	const [ choice, setChoice ] = useState( 'all' );
 	const [ confirmed, setConfirmed ] = useState( false );
 	const [ isBusy, setIsBusy ] = useState( false );
+	const [ followup, setFollowup ] = useState< Followup >( settings.followup );
+	const asksFollowup = mode === 'translate' && settings.review;
 	const slugs = choice === 'all' ? all : [ choice ];
 	const total = count( mode, items, slugs );
 	const rows = items.filter( ( row ) => slugs.some( ( slug ) => applies( mode, row, slug ) ) );
@@ -108,6 +110,7 @@ function LanguageModal( { items, closeModal, onActionPerformed, mode, screen }: 
 			.run( ACTION_IDS[ mode ], rows.map( ( row ) => row.sourceId ), {
 				languages: slugs,
 				...( mode === 'proofread' || mode === 'unproofread' ? { proofread: mode === 'proofread' } : {} ),
+				...( asksFollowup ? { followup } : {} ),
 			} )
 			.then( ( response ) => {
 				if ( response.results.some( ( result ) => result.ok ) ) {
@@ -130,6 +133,14 @@ function LanguageModal( { items, closeModal, onActionPerformed, mode, screen }: 
 			<p>{ descriptions[ mode ] }</p>
 			{ options.length > 2 && (
 				<RadioControl label={ __( 'Languages', 'gds-content-translation' ) } selected={ choice } options={ options } onChange={ ( value: string ) => setChoice( value ) } />
+			) }
+			{ asksFollowup && (
+				<RadioControl
+					label={ __( 'After the AI review', 'gds-content-translation' ) }
+					selected={ followup }
+					options={ ( Object.keys( settings.followups ) as Followup[] ).map( ( value ) => ( { value, label: settings.followups[ value ] } ) ) }
+					onChange={ ( value: string ) => setFollowup( value as Followup ) }
+				/>
 			) }
 			{ needsConfirm && (
 				<Notice status="warning" isDismissible={ false }>

@@ -72,7 +72,7 @@ final class BulkTranslation
      * @param  list<string>  $languages
      * @return array<int, array<string, string>> Per post and language: "queued" or why it was skipped.
      */
-    public static function enqueue(array $sourceIds, array $languages, string $mode = MachineTranslation::modeAi): array
+    public static function enqueue(array $sourceIds, array $languages, string $mode = MachineTranslation::modeAi, string $followup = ''): array
     {
         // A new run after the last one finished: its results leave the
         // panel, which would otherwise count them with this run's.
@@ -99,6 +99,8 @@ final class BulkTranslation
                     self::save($sourceId, $language, [
                         'status' => 'queued',
                         'mode' => $mode,
+                        // What to do with the AI review's suggestions; empty for the site's default.
+                        'followup' => $followup,
                         'batch' => $batch,
                         'userId' => get_current_user_id(),
                         'queuedAt' => time(),
@@ -224,7 +226,7 @@ final class BulkTranslation
     }
 
     /**
-     * @return array{sourceId: int, language: string, status: string, mode: string, batch: string, userId: int, queuedAt: int, startedAt: int, finishedAt: int, attempts: int, error: string, translationId: int}|null
+     * @return array{sourceId: int, language: string, status: string, mode: string, batch: string, userId: int, queuedAt: int, startedAt: int, finishedAt: int, attempts: int, error: string, translationId: int, followup: string}|null
      */
     public static function job(int $sourceId, string $language): ?array
     {
@@ -400,8 +402,8 @@ final class BulkTranslation
 
         try {
             $result = $create
-                ? $create($job['sourceId'], $job['language'], $job['mode'])
-                : MachineTranslation::create($job['sourceId'], $job['language'], $job['mode'], $warnings);
+                ? $create($job['sourceId'], $job['language'], $job['mode'], $job['followup'])
+                : MachineTranslation::create($job['sourceId'], $job['language'], $job['mode'], $warnings, (string) ($job['followup'] ?? ''));
         } catch (Throwable $e) {
             error_log(sprintf('[gds-content-translation] Bulk translation of post %d into %s failed: %s', $job['sourceId'], $job['language'], $e));
             $result = new WP_Error('gds_ct_exception', $e->getMessage());
@@ -445,7 +447,7 @@ final class BulkTranslation
     }
 
     /**
-     * @return array{sourceId: int, language: string, status: string, mode: string, batch: string, userId: int, queuedAt: int, startedAt: int, finishedAt: int, attempts: int, error: string, translationId: int}|null
+     * @return array{sourceId: int, language: string, status: string, mode: string, batch: string, userId: int, queuedAt: int, startedAt: int, finishedAt: int, attempts: int, error: string, translationId: int, followup: string}|null
      */
     private static function normalize(int $sourceId, string $language, mixed $stored): ?array
     {
@@ -466,6 +468,7 @@ final class BulkTranslation
             'attempts' => (int) ($stored['attempts'] ?? 0),
             'error' => (string) ($stored['error'] ?? ''),
             'translationId' => (int) ($stored['translationId'] ?? 0),
+            'followup' => in_array($stored['followup'] ?? '', TranslationAudit::followups, true) ? $stored['followup'] : '',
         ];
     }
 

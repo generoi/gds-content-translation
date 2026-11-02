@@ -87,12 +87,14 @@ class Settings
 
         $model = Request::key($_POST, 'gds_ct_audit_model');
         $language = Request::key($_POST, 'gds_ct_audit_language');
+        $followup = Request::key($_POST, 'gds_ct_audit_followup');
 
         update_option(TranslationAudit::optionKey, [
             'enabled' => isset($_POST['gds_ct_audit_enabled']),
             'model' => isset(TranslationAudit::models()[$model]) ? $model : TranslationAudit::defaultModel,
             'language' => isset(TranslationAudit::remarkLanguages()[$language]) ? $language : 'target',
             'notes' => isset($_POST['gds_ct_audit_notes']),
+            'followup' => in_array($followup, TranslationAudit::followups, true) ? $followup : 'manual',
         ]);
 
         add_settings_error('gds_content_translation', 'settings_updated', __('Settings saved.', 'gds-content-translation'), 'success');
@@ -166,7 +168,7 @@ class Settings
                 </table>
 
                 <h2><?php echo esc_html__('AI review', 'gds-content-translation'); ?></h2>
-                <p><?php echo esc_html__('After an AI translation, Claude compares its content and ACF text fields with the original, in the background. Its remarks show on the status screen, on the review page and as notes in the editor; the translation only changes when someone uses a suggestion.', 'gds-content-translation'); ?></p>
+                <p><?php echo esc_html__('After an AI translation, Claude compares its content and ACF text fields with the original, in the background. Its remarks show on the status screen, on the review page and as notes in the editor; the translation only changes when someone uses a suggestion, or when the suggestions are set to be applied automatically (below).', 'gds-content-translation'); ?></p>
                 <?php if ($keySource === '') { ?>
                     <div class="notice notice-warning inline"><p><?php echo esc_html__('No Claude API key found. Set ANTHROPIC_API_KEY in the site environment (.env) to turn on the AI review.', 'gds-content-translation'); ?></p></div>
                 <?php } else { ?>
@@ -208,6 +210,22 @@ class Settings
                                     <?php } ?>
                                 </select>
                                 <p class="description"><?php echo esc_html__('The translation’s language suits a translator working into it.', 'gds-content-translation'); ?></p>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th scope="row"><?php echo esc_html__('After the review of an AI translation', 'gds-content-translation'); ?></th>
+                            <td>
+                                <fieldset>
+                                    <legend class="screen-reader-text"><?php echo esc_html__('After the review of an AI translation', 'gds-content-translation'); ?></legend>
+                                    <?php foreach (TranslationAudit::followupLabels() as $value => $label) { ?>
+                                        <label>
+                                            <input type="radio" name="gds_ct_audit_followup" value="<?php echo esc_attr($value); ?>" <?php checked($audit['followup'], $value); ?>>
+                                            <?php echo esc_html($label); ?>
+                                        </label>
+                                        <br>
+                                    <?php } ?>
+                                </fieldset>
+                                <p class="description"><?php echo esc_html__('The default when AI translating. It can be chosen each time on the status screen.', 'gds-content-translation'); ?></p>
                             </td>
                         </tr>
                     </tbody>
