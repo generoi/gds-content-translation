@@ -28,7 +28,7 @@ final class MediaReplace
         $thumbnail = (int) get_post_thumbnail_id($postId) === $oldId;
 
         if ($thumbnail && self::syncsThumbnail($postId, $newId)) {
-            return new WP_Error('gds_ct_thumbnail_synced', __('The image is the featured image, which Polylang keeps the same in every translation (Languages → Settings → Synchronization). Changing it here would change it on the original too: change it in the editor, or turn off that synchronization first.', 'gds-content-translation'));
+            return new WP_Error('gds_ct_thumbnail_synced', __('The image is the featured image, which Polylang keeps the same in every translation (Languages → Settings → Synchronization). Changing it here would change it on the original too. To give the translation its own, turn off that synchronization first.', 'gds-content-translation'));
         }
 
         $urls = self::urlMap($oldId, $newId);
