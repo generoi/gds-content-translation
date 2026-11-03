@@ -9,7 +9,7 @@ import { __, _n, sprintf } from '@wordpress/i18n';
 import { defaultLanguage } from '../settings';
 import { MediaList } from './media-list';
 
-export function MediaModal( { postId, about, onChange, onClose }: { postId: number; about: string; onChange: () => void; onClose: () => void } ) {
+export function MediaModal( { postId, about, onChange, onQueued, onClose }: { postId: number; about: string; onChange: () => void; onQueued?: () => void; onClose: () => void } ) {
 	const source = defaultLanguage()?.name ?? '';
 
 	return (
@@ -22,7 +22,7 @@ export function MediaModal( { postId, about, onChange, onClose }: { postId: numb
 			size="medium"
 		>
 			<p className="gds-ct-media__intro">{ about }</p>
-			<MediaList postId={ postId } onChange={ onChange } />
+			<MediaList postId={ postId } onChange={ onChange } onQueued={ onQueued } />
 		</Modal>
 	);
 }
@@ -46,7 +46,7 @@ export function MediaBadge( { count, about, onOpen }: { count?: number; about: s
 	);
 	const title = sprintf(
 		/* translators: 1: number, 2: language name of the original, e.g. Finnish */
-		_n( '%1$d file, image, form, link or text still in %2$s or to write', '%1$d files, images, forms, links or texts still in %2$s or to write', count, 'gds-content-translation' ),
+		_n( '%1$d file, image, form, link or text still in %2$s or not written yet', '%1$d files, images, forms, links or texts still in %2$s or not written yet', count, 'gds-content-translation' ),
 		count,
 		source
 	);

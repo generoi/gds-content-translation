@@ -4,7 +4,7 @@
  * own, which pages in that language show. A page of images at a time from
  * the server; DeepL fills the missing ones, with the glossary.
  */
-import { Button, Flex, TextControl } from '@wordpress/components';
+import { Button, Flex, Notice, TextControl } from '@wordpress/components';
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from '@wordpress/element';
 import { __, _n, sprintf } from '@wordpress/i18n';
 import { errorMessage } from '../api';
@@ -161,8 +161,13 @@ export function AltsSection( { lang, language, missing, onMissing, onDirty }: Pr
 	const fields = useMemo( () => buildFields( language ), [ language ] );
 	const cell = useMemo( () => ( { drafts, language } ), [ drafts, language ] );
 
-	const after = ( saved: string[], message: ( result: AltsChanged ) => string ) => ( result: AltsChanged ) => {
-		drafts.clear( saved );
+	const after = ( saved: string[] | Record< string, string >, message: ( result: AltsChanged ) => string ) => ( result: AltsChanged ) => {
+		if ( Array.isArray( saved ) ) {
+			drafts.clear( saved );
+		} else {
+			drafts.settle( saved );
+		}
+
 		setSelection( [] );
 		onMissing( result.missing );
 		notifySuccess( message( result ) );
@@ -191,8 +196,10 @@ export function AltsSection( { lang, language, missing, onMissing, onDirty }: Pr
 			return;
 		}
 
-		saveAlts( lang, drafts.changes() )
-			.then( after( dirty, () => __( 'Alt texts saved.', 'gds-content-translation' ) ) )
+		const sent = drafts.changes();
+
+		saveAlts( lang, sent )
+			.then( after( sent, () => __( 'Alt texts saved.', 'gds-content-translation' ) ) )
 			.catch( fail )
 			.finally( done );
 	};
@@ -247,6 +254,12 @@ export function AltsSection( { lang, language, missing, onMissing, onDirty }: Pr
 						: __( 'Saved', 'gds-content-translation' ) }
 				</Button>
 			</Flex>
+			{ /* Shown above the table: it still has the last page that loaded. */ }
+			{ failed && data && (
+				<Notice status="error" isDismissible={ false }>
+					{ failed }
+				</Notice>
+			) }
 			<ErrorBoundary context="table">
 				<div className={ `gds-ct__table gds-ct-strings__table${ data ? '' : ' is-loading' }` }>
 					<DataViews< AltItem >

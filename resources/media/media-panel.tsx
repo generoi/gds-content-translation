@@ -21,7 +21,7 @@ export function MediaPanel( { postId, initialOpen, source }: { postId: number; i
 					{ open > 0
 						? sprintf(
 								/* translators: 1: number, 2: language name of the original, e.g. Finnish */
-								_n( '%1$d file, image, form, link or text is still in %2$s or to write', '%1$d files, images, forms, links or texts are still in %2$s or to write', open, 'gds-content-translation' ),
+								_n( '%1$d file, image, form, link or text is still in %2$s or not written yet', '%1$d files, images, forms, links or texts are still in %2$s or not written yet', open, 'gds-content-translation' ),
 								open,
 								source
 						  )

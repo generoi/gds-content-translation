@@ -17,6 +17,8 @@ export interface Drafts {
 	changes: () => Record< string, string >;
 	/** Forget the drafts of these rows (saved), or all. */
 	clear: ( ids?: string[] ) => void;
+	/** Forget the drafts that are still what was saved: typing during the save stays. */
+	settle: ( sent: Record< string, string > ) => void;
 }
 
 export function useDrafts(): Drafts {
@@ -32,6 +34,11 @@ export function useDrafts(): Drafts {
 
 	const clear = useCallback( ( ids?: string[] ) => setDrafts( ( current ) => ( ids ? Object.fromEntries( Object.entries( current ).filter( ( [ id ] ) => ! ids.includes( id ) ) ) : {} ) ), [] );
 
+	const settle = useCallback(
+		( sent: Record< string, string > ) => setDrafts( ( current ) => Object.fromEntries( Object.entries( current ).filter( ( [ id, draft ] ) => ! ( id in sent ) || draft.value !== sent[ id ] ) ) ),
+		[]
+	);
+
 	// Leaving the page with unsaved edits asks first.
 	useEffect( () => {
 		if ( dirty.length === 0 ) {
@@ -44,5 +51,5 @@ export function useDrafts(): Drafts {
 		return () => window.removeEventListener( 'beforeunload', warn );
 	}, [ dirty.length ] );
 
-	return { value, set, dirty, changes, clear };
+	return { value, set, dirty, changes, clear, settle };
 }

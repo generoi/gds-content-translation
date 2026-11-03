@@ -7,6 +7,7 @@
 import { Button, CheckboxControl, Flex, Notice, RadioControl, Spinner } from '@wordpress/components';
 import { useEffect, useState } from '@wordpress/element';
 import { __, _n, sprintf } from '@wordpress/i18n';
+import { errorMessage } from '../api';
 import type { Action, RenderModalProps } from '../dataviews';
 import type { ScreenContextValue } from '../list/screen-context';
 
@@ -205,6 +206,8 @@ function PageScanModal( { items, closeModal, onActionPerformed, screen }: Render
 	const [ totals, setTotals ] = useState< ScanTotals | null >( null );
 	const [ progress, setProgress ] = useState( 0 );
 	const [ isBusy, setIsBusy ] = useState( false );
+	const [ estimateFailed, setEstimateFailed ] = useState( '' );
+	const [ attempt, setAttempt ] = useState( 0 );
 	const slugs = choice === 'all' ? languages.map( ( language ) => language.slug ) : [ choice ];
 	const rows = items.filter( ( row ) => slugs.some( ( slug ) => canScan( row, slug ) ) );
 	const pages = rows.reduce( ( sum, row ) => sum + slugs.filter( ( slug ) => canScan( row, slug ) ).length, 0 );
@@ -217,6 +220,7 @@ function PageScanModal( { items, closeModal, onActionPerformed, screen }: Render
 
 		setTotals( null );
 		setProgress( 0 );
+		setEstimateFailed( '' );
 
 		void ( async () => {
 			for ( let start = 0; start < rows.length && current; start += SCAN_ESTIMATE_CHUNK ) {
@@ -235,7 +239,12 @@ function PageScanModal( { items, closeModal, onActionPerformed, screen }: Render
 							sum.errors.push( ...( Array.isArray( result.errors ) ? result.errors.map( String ) : [] ) );
 						}
 					}
-				} catch {
+				} catch ( caught: unknown ) {
+					// Said in the dialog, with Retry: not a spinner for good.
+					if ( current ) {
+						setEstimateFailed( errorMessage( caught, __( 'The pages could not be read for the estimate.', 'gds-content-translation' ) ) );
+					}
+
 					return;
 				}
 
@@ -254,7 +263,7 @@ function PageScanModal( { items, closeModal, onActionPerformed, screen }: Render
 		};
 		// The rows and languages, by value: the selection's array is new on each render.
 		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [ choice, rowKey ] );
+	}, [ choice, rowKey, attempt ] );
 
 	const options = [
 		/* translators: %d: number of translations */
@@ -294,7 +303,12 @@ function PageScanModal( { items, closeModal, onActionPerformed, screen }: Render
 			{ options.length > 2 && (
 				<RadioControl label={ __( 'Languages', 'gds-content-translation' ) } selected={ choice } options={ options } onChange={ ( value: string ) => setChoice( value ) } />
 			) }
-			{ pages > 0 && ! totals && (
+			{ estimateFailed && (
+				<Notice status="error" isDismissible={ false } actions={ [ { label: __( 'Try again', 'gds-content-translation' ), onClick: () => setAttempt( ( count ) => count + 1 ) } ] }>
+					{ estimateFailed }
+				</Notice>
+			) }
+			{ pages > 0 && ! totals && ! estimateFailed && (
 				<p className="gds-ct-media__job">
 					<Spinner />
 					{ sprintf(

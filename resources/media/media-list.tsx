@@ -654,9 +654,11 @@ interface Props {
 	postId: number;
 	/** After something changed: the counts elsewhere change. */
 	onChange?: ( data: MediaData ) => void;
+	/** A post was queued for AI translation: the status screen follows its job. */
+	onQueued?: () => void;
 }
 
-export function MediaList( { postId, onChange }: Props ) {
+export function MediaList( { postId, onChange, onQueued }: Props ) {
 	const [ data, setData ] = useState< MediaData | null >( null );
 	const [ failed, setFailed ] = useState( '' );
 	const [ busy, setBusy ] = useState( '' );
@@ -757,6 +759,7 @@ export function MediaList( { postId, onChange }: Props ) {
 					throw new Error( result.message || response.message );
 				}
 
+				onQueued?.();
 				notifySuccess(
 					sprintf(
 						/* translators: 1: post title, 2: language name, e.g. Swedish */

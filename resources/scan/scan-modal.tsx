@@ -20,7 +20,7 @@ export function ScanModal( { postId, about, onChange, onClose }: { postId: numbe
 		<Modal
 			title={
 				/* translators: %s: language name of the original, e.g. Finnish */
-				sprintf( __( 'Page check for %s', 'gds-content-translation' ), defaultLanguage()?.name ?? '' )
+				sprintf( __( 'What the page still shows in %s', 'gds-content-translation' ), defaultLanguage()?.name ?? '' )
 			}
 			onRequestClose={ onClose }
 			size="medium"
@@ -60,7 +60,7 @@ export function ScanBadge( { scan, about, onOpen }: { scan?: CellScan; about: st
 
 	const label = sprintf(
 		/* translators: 1: number of texts, 2: language name of the original, e.g. Finnish */
-		_n( 'Page: %1$d in %2$s', 'Page: %1$d in %2$s', scan.found, 'gds-content-translation' ),
+		_n( 'Page: %1$d text in %2$s', 'Page: %1$d texts in %2$s', scan.found, 'gds-content-translation' ),
 		scan.found,
 		source
 	);

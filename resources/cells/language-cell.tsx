@@ -356,7 +356,18 @@ function TranslatedCell( { item, slug, cell, about }: CellProps ) {
 					</>
 				) }
 			</CellMenu>
-			{ mediaOpen && <MediaModal postId={ cell.postId } about={ about } onChange={ () => screen.refresh( true ) } onClose={ () => setMediaOpen( false ) } /> }
+			{ mediaOpen && (
+				<MediaModal
+					postId={ cell.postId }
+					about={ about }
+					onChange={ () => screen.refresh( true ) }
+					onQueued={ () => {
+						screen.followJobs();
+						screen.refresh( true );
+					} }
+					onClose={ () => setMediaOpen( false ) }
+				/>
+			) }
 			{ scanOpen && <ScanModal postId={ cell.postId } about={ about } onChange={ () => screen.refresh( true ) } onClose={ () => setScanOpen( false ) } /> }
 		</>
 	);

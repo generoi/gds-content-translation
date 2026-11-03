@@ -4,7 +4,7 @@
  * original and its translation to edit, missing ones first, with DeepL for
  * the missing ones and the AI review to check them.
  */
-import { Button, Flex, TextareaControl } from '@wordpress/components';
+import { Button, Flex, TextareaControl, VisuallyHidden } from '@wordpress/components';
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from '@wordpress/element';
 import { __, _n, sprintf } from '@wordpress/i18n';
 import { errorMessage } from '../api';
@@ -101,9 +101,11 @@ function TranslationCell( { item }: { item: StringRow } ) {
 					<p className="gds-ct-forms__suggestion">{ item.remark.suggestion }</p>
 					<Button variant="primary" size="compact" disabled={ !! busy } accessibleWhenDisabled onClick={ () => onRemark( item, true ) }>
 						{ __( 'Use suggestion', 'gds-content-translation' ) }
+						<VisuallyHidden>{ `: “${ item.source }”` }</VisuallyHidden>
 					</Button>{ ' ' }
 					<Button variant="tertiary" size="compact" disabled={ !! busy } accessibleWhenDisabled onClick={ () => onRemark( item, false ) }>
 						{ __( 'Not an issue', 'gds-content-translation' ) }
+						<VisuallyHidden>{ `: “${ item.source }”` }</VisuallyHidden>
 					</Button>
 				</div>
 			) }
@@ -198,7 +200,7 @@ export function TextsSection( { data, onData, onDirty }: Props ) {
 	const translated = rows.filter( ( row ) => row.translation !== '' ).length;
 
 	/** Runs a request; the drafts of the texts it saved are cleared, the others kept. */
-	const run = ( what: string, request: () => Promise< StringsResponse >, done: ( next: StringsResponse ) => string, saved: string[] = [] ) => {
+	const run = ( what: string, request: () => Promise< StringsResponse >, done: ( next: StringsResponse ) => string, saved: string[] | Record< string, string > = [] ) => {
 		// One at a time: the table's own actions are not disabled meanwhile.
 		if ( busyRef.current ) {
 			return Promise.resolve();
@@ -210,7 +212,11 @@ export function TextsSection( { data, onData, onDirty }: Props ) {
 		return request()
 			.then( ( next ) => {
 				onData( next );
-				drafts.clear( saved );
+				if ( Array.isArray( saved ) ) {
+					drafts.clear( saved );
+				} else {
+					drafts.settle( saved );
+				}
 				setSelection( [] );
 				notifySuccess( done( next ) );
 			} )
@@ -230,7 +236,11 @@ export function TextsSection( { data, onData, onDirty }: Props ) {
 
 	const translate = ( ids: string[] = [] ) => run( 'translate', () => translateStrings( lang, ids ), translatedMessage );
 
-	const save = () => run( 'save', () => saveStrings( lang, { translations: drafts.changes() } ), () => __( 'Translations saved.', 'gds-content-translation' ), dirty );
+	const save = () => {
+		const sent = drafts.changes();
+
+		return run( 'save', () => saveStrings( lang, { translations: sent } ), () => __( 'Translations saved.', 'gds-content-translation' ), sent );
+	};
 
 	const onRemark = ( row: StringRow, use: boolean ) =>
 		void run( `remark-${ row.id }`, () => settleRemark( lang, row.id, use ), () => ( use ? __( 'Suggestion used.', 'gds-content-translation' ) : __( 'Marked as not an issue.', 'gds-content-translation' ) ), use ? [ row.id ] : [] );
