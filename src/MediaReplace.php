@@ -25,18 +25,34 @@ final class MediaReplace
             return new WP_Error('gds_ct_media_missing', __('Choose a file from the media library.', 'gds-content-translation'));
         }
 
+        $thumbnail = (int) get_post_thumbnail_id($postId) === $oldId;
+
+        if ($thumbnail && self::syncsThumbnail($postId, $newId)) {
+            return new WP_Error('gds_ct_thumbnail_synced', __('The image is the featured image, which Polylang keeps the same in every translation (Languages → Settings → Synchronization). Changing it here would change it on the original too: change it in the editor, or turn off that synchronization first.', 'gds-content-translation'));
+        }
+
         $urls = self::urlMap($oldId, $newId);
         $result = self::change($postId, static function (array $block) use ($oldId, $newId, $urls): array {
-            foreach ($block['attrs'] as $name => $value) {
-                if (! is_string($name) || ! preg_match(MediaCheck::attachmentAttributePattern, $name)) {
-                    continue;
+            // The ID only in a block that shows the item: another block's
+            // `id` or `data-id` with the same number is something else.
+            if (in_array($oldId, MediaCheck::attachmentIds($block['attrs']), true)) {
+                foreach ($block['attrs'] as $name => $value) {
+                    if (! is_string($name) || ! preg_match(MediaCheck::attachmentAttributePattern, $name)) {
+                        continue;
+                    }
+
+                    if (is_array($value)) {
+                        $block['attrs'][$name] = array_map(static fn ($id) => is_numeric($id) && (int) $id === $oldId ? (is_string($id) ? (string) $newId : $newId) : $id, $value);
+                    } elseif (is_numeric($value) && (int) $value === $oldId) {
+                        $block['attrs'][$name] = is_string($value) ? (string) $newId : $newId;
+                    }
                 }
 
-                if (is_array($value)) {
-                    $block['attrs'][$name] = array_map(static fn ($id) => (int) $id === $oldId ? (is_string($id) ? (string) $newId : $newId) : $id, $value);
-                } elseif (is_numeric($value) && (int) $value === $oldId) {
-                    $block['attrs'][$name] = is_string($value) ? (string) $newId : $newId;
-                }
+                $block = self::replaceInHtml($block, [
+                    'wp-image-'.$oldId.'"' => 'wp-image-'.$newId.'"',
+                    'wp-image-'.$oldId.' ' => 'wp-image-'.$newId.' ',
+                    'data-id="'.$oldId.'"' => 'data-id="'.$newId.'"',
+                ]);
             }
 
             foreach ($block['attrs'] as $name => $value) {
@@ -46,11 +62,7 @@ final class MediaReplace
                 }
             }
 
-            return self::replaceInHtml($block, array_merge($urls, [
-                'wp-image-'.$oldId.'"' => 'wp-image-'.$newId.'"',
-                'wp-image-'.$oldId.' ' => 'wp-image-'.$newId.' ',
-                'data-id="'.$oldId.'"' => 'data-id="'.$newId.'"',
-            ]));
+            return self::replaceInHtml($block, $urls);
         }, static function (string $content) use ($urls): string {
             return strtr($content, $urls);
         });
@@ -59,12 +71,40 @@ final class MediaReplace
             return $result;
         }
 
-        if ((int) get_post_thumbnail_id($postId) === $oldId) {
+        if ($thumbnail) {
             set_post_thumbnail($postId, $newId);
             $result = true;
         }
 
         return self::done($postId, $result);
+    }
+
+    /**
+     * Whether Polylang would give the translation's other languages (the
+     * original) this featured image too: its synchronization of featured
+     * images copies the value to every translation, the media item's
+     * translation in that language when media are translated. Also on the
+     * next save in the editor, so it cannot be written around.
+     */
+    private static function syncsThumbnail(int $postId, int $newId): bool
+    {
+        if (! in_array('_thumbnail_id', (array) (PLL()->options['sync'] ?? []), true)) {
+            return false;
+        }
+
+        foreach (pll_get_post_translations($postId) as $slug => $translationId) {
+            if ((int) $translationId === $postId) {
+                continue;
+            }
+
+            $synced = ! empty(PLL()->options['media_support']) ? ((int) pll_get_post($newId, $slug) ?: $newId) : $newId;
+
+            if ($synced !== (int) get_post_thumbnail_id((int) $translationId)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

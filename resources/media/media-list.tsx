@@ -51,6 +51,17 @@ function hint( item: MediaItem, data: MediaData ): string {
 		}
 	}
 
+	if ( item.state === 'not-checked' ) {
+		switch ( item.notChecked ) {
+			case 'too-large':
+				return __( 'Claude could not check the image for text: its file is larger than 3.5 MB. Look at it yourself: use a translated version of the image, or keep this one.', 'gds-content-translation' );
+			case 'unreadable':
+				return __( 'Claude could not check the image for text: its file could not be read here (it may be kept elsewhere). Look at it yourself: use a translated version of the image, or keep this one.', 'gds-content-translation' );
+			default:
+				return __( 'Claude could not check the image for text. It is checked again later; meanwhile, look at it yourself.', 'gds-content-translation' );
+		}
+	}
+
 	switch ( item.kind ) {
 		case 'document':
 			/* translators: %s: language name of the original, e.g. Finnish */
@@ -294,6 +305,15 @@ function Item( { item, data, busy, locked, onMark, onAction }: ItemProps ) {
 						) }
 					</p>
 				) }
+				{ item.inOriginalTitle && (
+					<p className="gds-ct-media__hint">
+						{ sprintf(
+							/* translators: %s: synced pattern title */
+							__( 'Also in the pattern “%s”, which the page still shows in the original language: a change here leaves it as it is.', 'gds-content-translation' ),
+							item.inOriginalTitle
+						) }
+					</p>
+				) }
 				{ ! ok && hint( item, data ) && <p className="gds-ct-media__hint">{ hint( item, data ) }</p> }
 				{ ! ok && ! translated && !! item.texts?.length && <Texts texts={ item.texts } /> }
 				{ translated && !! item.labels?.length && <Texts texts={ item.labels.map( ( label ) => label.translation ) } /> }
@@ -518,7 +538,7 @@ export function MediaList( { postId, onChange }: Props ) {
 			.finally( () => setBusy( '' ) );
 	};
 
-	const rank = { open: 0, translated: 1, ok: 2, unchecked: 3 };
+	const rank = { open: 0, 'not-checked': 1, translated: 2, ok: 3, unchecked: 4 };
 	const sorted = data.items
 		.filter( ( item ) => item.state !== 'unchecked' )
 		.sort( ( a, b ) => rank[ a.state ] - rank[ b.state ] || order.indexOf( a.kind ) - order.indexOf( b.kind ) );

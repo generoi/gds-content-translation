@@ -18,9 +18,12 @@ export interface MediaItem {
 	kind: MediaKind;
 	/**
 	 * open: to handle; ok: marked fine as it is; unchecked: an image Claude has
-	 * not looked at yet; translated: a translated copy (or a translated form).
+	 * not looked at yet; not-checked: an image Claude could not check (see
+	 * notChecked); translated: a translated copy (or a translated form).
 	 */
-	state: 'open' | 'ok' | 'unchecked' | 'translated';
+	state: 'open' | 'ok' | 'unchecked' | 'not-checked' | 'translated';
+	/** Why Claude could not check an image: its file is too large, could not be read, or Claude failed (asked again later). */
+	notChecked?: 'too-large' | 'unreadable' | 'failed';
 	title: string;
 	url: string;
 	editUrl?: string;
@@ -36,11 +39,15 @@ export interface MediaItem {
 	job?: DocumentJob;
 	/** A DeepL draft of this file in this language exists already, made for another translation. */
 	draftExists?: boolean;
+	/** Where the translation shows it: 0 the page itself, else its synced patterns. Actions change each. */
+	places?: number[];
 	/** In a synced pattern the page shows: its ID and title. Actions change the pattern. */
 	in?: number;
 	inTitle?: string;
 	/** The pattern is still the original's, so nothing here can be changed for this translation. */
 	inOriginal?: boolean;
+	/** Also in a pattern that is still the original's, which actions leave as it is. */
+	inOriginalTitle?: string;
 }
 
 export interface DocumentCost {
