@@ -3,6 +3,7 @@
 namespace GeneroWP\ContentTranslation\Rest;
 
 use GeneroWP\ContentTranslation\Actions\Action;
+use GeneroWP\ContentTranslation\Actions\PageScanAction;
 use GeneroWP\ContentTranslation\Actions\Proofread;
 use GeneroWP\ContentTranslation\Actions\Review;
 use GeneroWP\ContentTranslation\Actions\Translate;
@@ -14,6 +15,7 @@ use GeneroWP\ContentTranslation\BulkTranslation;
 use GeneroWP\ContentTranslation\FormTranslation;
 use GeneroWP\ContentTranslation\MediaActions;
 use GeneroWP\ContentTranslation\MediaCheck;
+use GeneroWP\ContentTranslation\PageScan;
 use GeneroWP\ContentTranslation\StatusList;
 use GeneroWP\ContentTranslation\TranslationActions;
 use GeneroWP\ContentTranslation\TranslationAudit;
@@ -41,6 +43,9 @@ if (! defined('ABSPATH')) {
  *   the original's language; POST {keys, ok} marks some fine as they are.
  * - POST /media/{id}/action {key, action, value, labels}: use another file,
  *   form or address, translate an SVG or a document, or go back.
+ * - GET /scans/{id}: the last check of a translation's page for text in
+ *   the original's language; GET /scans/{id}/estimate: what checking it
+ *   costs; POST /scans/{id}: queue the check.
  * - GET /forms, GET|POST /forms/{form}/{lang}, POST …/translate|review|remark:
  *   Gravity Forms forms' texts per language.
  *
@@ -142,6 +147,27 @@ final class StatusController
                 'value' => ['type' => ['string', 'integer'], 'default' => ''],
                 'labels' => ['type' => 'object', 'default' => [], 'additionalProperties' => ['type' => 'string']],
             ],
+        ]);
+
+        $canScan = static fn (WP_REST_Request $request): bool => $canEditPost($request) && PageScan::sourceIdOf((int) $request['id']) > 0;
+
+        register_rest_route(self::namespace, '/scans/(?P<id>\\d+)', [
+            [
+                'methods' => 'GET',
+                'callback' => static fn (WP_REST_Request $request): WP_REST_Response => rest_ensure_response(PageScan::data((int) $request['id'])),
+                'permission_callback' => $canScan,
+            ],
+            [
+                'methods' => 'POST',
+                'callback' => [$this, 'queueScan'],
+                'permission_callback' => $canScan,
+            ],
+        ]);
+
+        register_rest_route(self::namespace, '/scans/(?P<id>\\d+)/estimate', [
+            'methods' => 'GET',
+            'callback' => [$this, 'estimateScan'],
+            'permission_callback' => $canScan,
         ]);
 
         register_rest_route(self::namespace, '/forms', [
@@ -271,7 +297,7 @@ final class StatusController
      */
     public static function actions(): array
     {
-        $actions = [new Proofread, new Review, new Translate, new TrashRow, new TrashRow(true)];
+        $actions = [new Proofread, new Review, new Translate, new TrashRow, new TrashRow(true), new PageScanAction];
 
         foreach (TrashTranslation::operations as $operation) {
             $actions[] = new TrashTranslation($operation);
@@ -377,6 +403,32 @@ final class StatusController
         }
 
         return rest_ensure_response(MediaCheck::data($postId));
+    }
+
+    /**
+     * What checking a translation's page would cost: its texts are read
+     * from the page now, nothing is sent to Claude.
+     */
+    public function estimateScan(WP_REST_Request $request): WP_REST_Response|WP_Error
+    {
+        if (! PageScan::isAvailable()) {
+            return new WP_Error('gds_ct_audit_disabled', __('The page check needs the AI review. Check the Claude API key and the Content translation settings.', 'gds-content-translation'), ['status' => 400]);
+        }
+
+        $estimate = PageScan::estimate((int) $request['id'], get_current_user_id());
+
+        return $estimate instanceof WP_Error ? new WP_Error($estimate->get_error_code(), $estimate->get_error_message(), ['status' => 400]) : rest_ensure_response($estimate);
+    }
+
+    public function queueScan(WP_REST_Request $request): WP_REST_Response|WP_Error
+    {
+        if (! PageScan::isAvailable()) {
+            return new WP_Error('gds_ct_audit_disabled', __('The page check needs the AI review. Check the Claude API key and the Content translation settings.', 'gds-content-translation'), ['status' => 400]);
+        }
+
+        PageScan::queue((int) $request['id'], get_current_user_id());
+
+        return rest_ensure_response(PageScan::data((int) $request['id']));
     }
 
     public function formRows(WP_REST_Request $request): WP_REST_Response|WP_Error

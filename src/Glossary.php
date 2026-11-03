@@ -639,6 +639,46 @@ final class Glossary
     }
 
     /**
+     * The approved translations of a language pair that appear in a text in
+     * the target language (whole words, any case), longest first: terms the
+     * site wants exactly so, which a check of the page leaves as they are.
+     *
+     * @return list<string>
+     */
+    public static function targetTermsIn(string $text, string $sourceLang, string $targetLang): array
+    {
+        global $wpdb;
+
+        $text = html_entity_decode(wp_strip_all_tags($text), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+
+        if (trim($text) === '') {
+            return [];
+        }
+
+        $rows = $wpdb->get_col($wpdb->prepare(
+            'SELECT DISTINCT target_term FROM '.self::table().' WHERE source_lang = %s AND target_lang = %s AND status = %s ORDER BY CHAR_LENGTH(target_term) DESC',
+            $sourceLang,
+            $targetLang,
+            'approved'
+        ));
+        $terms = [];
+
+        foreach ((array) $rows as $term) {
+            $term = (string) $term;
+
+            if ($term !== '' && preg_match('/(?<![\p{L}\p{N}])'.preg_quote($term, '/').'(?![\p{L}\p{N}])/iu', $text) === 1) {
+                $terms[] = $term;
+            }
+
+            if (count($terms) >= self::reviewMax) {
+                break;
+            }
+        }
+
+        return $terms;
+    }
+
+    /**
      * A term the review or a proofread translation suggests. Seen again on
      * another page, a suggestion counts one more hit; one an editor rejected,
      * or approved already, is left as it is.

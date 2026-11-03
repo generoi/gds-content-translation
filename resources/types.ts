@@ -20,6 +20,13 @@ export interface CellJob {
 	queuedAt: number;
 }
 
+/** The last check of a translation's page (PageScan::statuses()). */
+export interface CellScan {
+	status: 'none' | 'queued' | 'running' | 'stuck' | 'done' | 'failed';
+	/** Texts found in the wrong language. */
+	found: number;
+}
+
 export interface Cell {
 	state: 'translated' | 'trashed' | 'missing';
 	postId: number;
@@ -33,6 +40,7 @@ export interface Cell {
 	audit?: Audit | null;
 	/** Files, images and forms still in the original's language (MediaCheck). */
 	media?: number;
+	scan?: CellScan;
 	job?: CellJob | null;
 }
 

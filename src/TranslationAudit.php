@@ -119,10 +119,48 @@ final class TranslationAudit
     }
 
     /**
-     * Which language Claude writes its remarks in.
+     * What the models cost, in US dollars per million tokens: the one place
+     * the prices are kept, for the estimates shown before a call that an
+     * editor starts (the page check). Change them with
+     * `gds_content_translation_claude_prices`.
      *
-     * @return array<string, string>
+     * @return array<string, array{input: float, output: float}> Model ID => prices.
      */
+    public static function modelPrices(): array
+    {
+        return (array) apply_filters('gds_content_translation_claude_prices', [
+            'claude-sonnet-5-5' => ['input' => 2.0, 'output' => 10.0],
+            'claude-opus-5-5' => ['input' => 4.0, 'output' => 20.0],
+            'claude-haiku-5-5' => ['input' => 0.10, 'output' => 0.50],
+        ]);
+    }
+
+    /**
+     * The model the review and the other calls use: the setting, or what
+     * `gds_content_translation_audit_model` makes of it.
+     */
+    public static function model(): string
+    {
+        return (string) apply_filters('gds_content_translation_audit_model', self::settings()['model']);
+    }
+
+    /**
+     * What a call costs in US dollars, as far as its tokens are known. A
+     * model without a price (one set with the filter) is counted at the
+     * dearest price known, so an estimate is never too low.
+     */
+    public static function price(string $model, int $inputTokens, int $outputTokens): float
+    {
+        $prices = self::modelPrices();
+        $price = $prices[$model] ?? null;
+
+        if (! is_array($price)) {
+            $price = ['input' => (float) max(array_column($prices, 'input') ?: [0]), 'output' => (float) max(array_column($prices, 'output') ?: [0])];
+        }
+
+        return ($inputTokens * (float) $price['input'] + $outputTokens * (float) $price['output']) / 1_000_000;
+    }
+
     /**
      * The choices for what happens after the review of a new AI translation:
      * a short title and one line of help each, in the order they are shown.
@@ -526,7 +564,7 @@ final class TranslationAudit
     {
         $translation = get_post($postId);
         $source = get_post(self::sourceIdOf($postId));
-        $model = (string) apply_filters('gds_content_translation_audit_model', self::settings()['model']);
+        $model = self::model();
 
         $review = [
             'status' => 'failed',
@@ -1416,14 +1454,14 @@ final class TranslationAudit
      *
      * @param  string|list<array<string, mixed>>  $user  The question, or its content blocks (an image and a question).
      * @param  array<string, mixed>  $schema
+     * @param  int  $maxTokens  Room for the answer, thinking included.
      * @return array<string, mixed>|WP_Error
      */
-    public function ask(string $system, string|array $user, array $schema): array|WP_Error
+    public function ask(string $system, string|array $user, array $schema, int $maxTokens = 4000): array|WP_Error
     {
-        $model = (string) apply_filters('gds_content_translation_audit_model', self::settings()['model']);
         $message = $this->request([
-            'model' => $model,
-            'max_tokens' => 4000,
+            'model' => self::model(),
+            'max_tokens' => $maxTokens,
             'system' => $system,
             'messages' => [['role' => 'user', 'content' => $user]],
             'output_config' => ['format' => ['type' => 'json_schema', 'schema' => $schema]],

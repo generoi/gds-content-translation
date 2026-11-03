@@ -3,7 +3,8 @@
  *
  * - Translated: a status chip (Draft, Published…, with a tick once proofread)
  *   that opens the editor, the AI review's open errors or remarks, open notes,
- *   and a ⋯ menu with everything else: View, the review, proofread, trash.
+ *   and a ⋯ menu with everything else: View, the review, the page check,
+ *   proofread, trash.
  * - Missing: AI translate, with Copy in the menu.
  * - Queued, translating or failed in the background: a chip of the same size,
  *   so nothing moves while it changes.
@@ -27,6 +28,7 @@ import { dismissNotice, notifyError, notifySuccess } from '../ui/notify';
 import { cellKey, useScreen } from '../list/screen-context';
 import { AuditBadge } from './audit-indicator';
 import { MediaBadge, MediaModal } from '../media/media-badge';
+import { ScanBadge, ScanModal, scanMenuLabel } from '../scan/scan-modal';
 import { FollowupMenu } from '../ui/followup';
 
 const MISSING: Cell = { state: 'missing', postId: 0 };
@@ -116,6 +118,7 @@ function TranslatedCell( { item, slug, cell, about }: CellProps ) {
 	const status = statusLabel( cell.status );
 	const audit = cell.audit;
 	const [ mediaOpen, setMediaOpen ] = useState( false );
+	const [ scanOpen, setScanOpen ] = useState( false );
 
 	const setProofread = ( proofread: boolean ) => {
 		const anchor = document.querySelector< HTMLElement >( `[data-cell="${ key }"] .gds-ct__status` );
@@ -234,6 +237,7 @@ function TranslatedCell( { item, slug, cell, about }: CellProps ) {
 			) }
 			<AuditBadge audit={ audit } about={ about } />
 			<MediaBadge count={ cell.media } about={ about } onOpen={ () => setMediaOpen( true ) } />
+			<ScanBadge scan={ cell.scan } about={ about } onOpen={ () => setScanOpen( true ) } />
 			{ !! cell.openNotes && cell.editUrl && (
 				<a className="gds-ct__notes" href={ cell.editUrl } target="_blank" rel="noopener noreferrer" title={ __( 'Open block editor notes', 'gds-content-translation' ) }>
 					<span className="dashicons dashicons-admin-comments" aria-hidden="true" />
@@ -274,6 +278,11 @@ function TranslatedCell( { item, slug, cell, about }: CellProps ) {
 						<MenuItem onClick={ () => { close(); setMediaOpen( true ); } }>
 							{ __( 'Files, images, links and texts', 'gds-content-translation' ) }
 						</MenuItem>
+						{ cell.viewUrl && ( settings.review || ( cell.scan && cell.scan.status !== 'none' ) ) && (
+							<MenuItem onClick={ () => { close(); setScanOpen( true ); } }>
+								{ scanMenuLabel() }
+							</MenuItem>
+						) }
 						<MenuItem
 							disabled={ saving }
 							onClick={ () => {
@@ -299,6 +308,7 @@ function TranslatedCell( { item, slug, cell, about }: CellProps ) {
 				) }
 			</CellMenu>
 			{ mediaOpen && <MediaModal postId={ cell.postId } about={ about } onChange={ () => screen.refresh( true ) } onClose={ () => setMediaOpen( false ) } /> }
+			{ scanOpen && <ScanModal postId={ cell.postId } about={ about } onChange={ () => screen.refresh( true ) } onClose={ () => setScanOpen( false ) } /> }
 		</>
 	);
 }
