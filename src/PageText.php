@@ -101,11 +101,12 @@ final class PageText
     }
 
     /**
-     * Whitespace collapsed and entities decoded, for comparing texts.
+     * Whitespace collapsed, entities decoded and soft hyphens (which split
+     * a word for Claude) taken out, for comparing texts.
      */
     public static function normalize(string $text): string
     {
-        $text = html_entity_decode($text, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $text = str_replace("\u{00AD}", '', html_entity_decode($text, ENT_QUOTES | ENT_HTML5, 'UTF-8'));
         $text = (string) preg_replace('/[\s\x{00A0}\x{200B}]+/u', ' ', $text);
 
         return trim($text);

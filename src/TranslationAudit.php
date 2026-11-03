@@ -1565,8 +1565,9 @@ PROMPT;
                 'id' => $segment['id'],
                 // ACF fields, the title and so on: which one, as the editor knows it.
                 'field' => $segment['label'] ?? null,
-                'source' => $segment['source'],
-                'translation' => $segment['translation'],
+                // Without an editor's soft hyphens, which split words for Claude.
+                'source' => SoftHyphens::strip((string) $segment['source']),
+                'translation' => SoftHyphens::strip((string) $segment['translation']),
             ], static fn ($value): bool => $value !== null), $segments),
         ], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     }
@@ -1638,7 +1639,7 @@ PROMPT;
             // Every remark is fixed with one click: one without a suggestion,
             // or with one identical to the current translation, is a remark
             // that found nothing to change ("acceptable", "not an error").
-            if ($suggestion === '' || $suggestion === trim($translation)) {
+            if ($suggestion === '' || $suggestion === trim($translation) || $suggestion === trim(SoftHyphens::strip($translation))) {
                 continue;
             }
 

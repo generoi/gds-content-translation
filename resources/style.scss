@@ -1756,6 +1756,32 @@ $chip: 22px;
 // Polylang → String translations: a button per language, a tab per part
 // (texts, URL slugs, image alt texts), and the table to translate in.
 .gds-ct-strings {
+	// Three columns at fixed shares: the slug's field is never squeezed.
+	&__slug-table {
+		width: 100%;
+		table-layout: fixed;
+
+		th:nth-child(1) {
+			width: 35%;
+		}
+
+		th:nth-child(2) {
+			width: 25%;
+		}
+
+		td {
+			vertical-align: top;
+		}
+
+		code {
+			overflow-wrap: anywhere;
+		}
+	}
+
+	&__alt {
+		min-width: 20rem;
+	}
+
 	&__languages {
 		display: flex;
 		flex-wrap: wrap;

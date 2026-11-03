@@ -46,6 +46,7 @@ function AltCell( { item }: { item: AltItem } ) {
 		<TextControl
 			__next40pxDefaultSize
 			__nextHasNoMarginBottom
+			className="gds-ct-strings__alt"
 			/* translators: 1: image title, 2: language name */
 			label={ sprintf( __( 'Alt text of %1$s in %2$s', 'gds-content-translation' ), item.title || item.file, context.language ) }
 			hideLabelFromVision

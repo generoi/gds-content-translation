@@ -37,6 +37,7 @@ class Plugin
         Admin::init();
         Settings::init();
         MachineTranslation::init();
+        SoftHyphens::init();
         TranslationAudit::init();
         AuditReview::init();
         AuditNotes::init();
