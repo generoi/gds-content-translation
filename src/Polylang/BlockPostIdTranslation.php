@@ -151,6 +151,13 @@ class BlockPostIdTranslation
     private static function translateBlock(array $block, string $languageSlug, int $editedPostId): array
     {
         $blockName = $block['blockName'] ?? '';
+
+        if ($blockName === 'core/query' && is_array($block['attrs']['query'] ?? null)) {
+            $block['attrs']['query'] = self::translateQuery($block['attrs']['query'], $languageSlug);
+
+            return $block;
+        }
+
         $rulesByType = self::postIdAttributesByBlock();
 
         if (! is_string($blockName) || ! isset($rulesByType[$blockName]) || empty($block['attrs'])) {
@@ -193,6 +200,71 @@ class BlockPostIdTranslation
         }
 
         return $block;
+    }
+
+    /**
+     * A query loop's chosen posts (`include`, `exclude`), parent pages
+     * (`parents`) and terms (`taxQuery`, as `{category: [4]}` or, since
+     * WordPress 7.0, `{include: {category: [4]}, exclude: {…}}`).
+     *
+     * A chosen post without a translation becomes 0, as Polylang Pro makes
+     * it: the list keeps its order and shows what is translated. A parent or
+     * term without one is kept: 0 there would lift the condition, and the
+     * list would show every post instead of none.
+     *
+     * @param  array<string, mixed>  $query
+     * @return array<string, mixed>
+     */
+    private static function translateQuery(array $query, string $languageSlug): array
+    {
+        $ids = static function ($ids, string $objectType, bool $zeroWhenMissing) use ($languageSlug): mixed {
+            if (! is_array($ids)) {
+                return $ids;
+            }
+
+            foreach ($ids as $index => $id) {
+                $translated = self::translateObjectId($id, $objectType, $languageSlug);
+
+                if ($translated !== null && ($translated > 0 || $zeroWhenMissing)) {
+                    $ids[$index] = $translated;
+                }
+            }
+
+            return $ids;
+        };
+
+        foreach (['include' => true, 'exclude' => true, 'parents' => false] as $name => $zeroWhenMissing) {
+            if (isset($query[$name])) {
+                $query[$name] = $ids($query[$name], 'post', $zeroWhenMissing);
+            }
+        }
+
+        if (is_array($query['taxQuery'] ?? null)) {
+            $taxQuery = $query['taxQuery'];
+            $grouped = array_diff(array_keys($taxQuery), ['include', 'exclude']) === [];
+
+            foreach ($grouped ? ['include', 'exclude'] : [null] as $group) {
+                $terms = $group === null ? $taxQuery : ($taxQuery[$group] ?? null);
+
+                if (! is_array($terms)) {
+                    continue;
+                }
+
+                foreach ($terms as $taxonomy => $termIds) {
+                    $terms[$taxonomy] = $ids($termIds, 'term', false);
+                }
+
+                if ($group === null) {
+                    $taxQuery = $terms;
+                } else {
+                    $taxQuery[$group] = $terms;
+                }
+            }
+
+            $query['taxQuery'] = $taxQuery;
+        }
+
+        return $query;
     }
 
     /**

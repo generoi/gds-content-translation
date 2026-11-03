@@ -101,46 +101,6 @@
   margin: 0 0 8px;
 }
 
-.gds-content-translation-review__links-list {
-  margin: 0;
-}
-
-.gds-content-translation-review__links-list li {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 12px;
-  max-width: 48rem;
-  margin: 0;
-  padding: 4px 0;
-  border-top: 1px solid #f0f0f1;
-}
-
-.gds-content-translation-review__link-title {
-  flex: 0 0 14rem;
-}
-
-.gds-content-translation-review__link-status {
-  display: inline-flex;
-  flex: 1;
-  align-items: center;
-  gap: 4px;
-  min-height: 24px;
-}
-
-.gds-content-translation-review__link-status .spinner {
-  float: none;
-  margin: 0;
-}
-
-[data-state='done'] .gds-content-translation-review__link-status {
-  color: #007017;
-}
-
-[data-state='failed'] .gds-content-translation-review__link-status {
-  color: #b32d2e;
-}
-
 /* Keeps its place until the table is there. */
 .gds-content-translation-review__remarks {
   position: relative;

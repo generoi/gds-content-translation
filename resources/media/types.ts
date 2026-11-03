@@ -1,9 +1,24 @@
 /**
- * The shapes of /media/{id} (src/MediaCheck.php, src/MediaActions.php).
+ * The shapes of /media/{id} (src/MediaCheck.php, src/ContentGaps.php,
+ * src/MediaActions.php).
  */
-export type MediaKind = 'document' | 'svg' | 'image' | 'form' | 'embed' | 'link';
+export type MediaKind = 'document' | 'svg' | 'image' | 'form' | 'embed' | 'link' | 'query' | 'page' | 'placeholder';
 
-export type MediaAction = 'replace' | 'restore' | 'svg-translate' | 'svg-labels' | 'document-translate' | 'document-use' | 'document-discard';
+/** `translate` is the status screen's REST action, run on the original of a linked page or chosen post. */
+export type MediaAction = 'replace' | 'restore' | 'svg-translate' | 'svg-labels' | 'document-translate' | 'document-use' | 'document-discard' | 'query-update' | 'translate';
+
+/** A post a query loop chose that the translation does not show. */
+export interface ChosenPost {
+	/** The original's ID; 0 when the check could not tell which post it was. */
+	id: number;
+	title: string;
+	/** The original in the editor. */
+	url: string;
+	field: 'include' | 'parents';
+	/** Its translation in the language, when it has one by now. */
+	translationId: number;
+	published: boolean;
+}
 
 export interface DocumentJob {
 	status: 'translating' | 'ready' | 'failed';
@@ -48,6 +63,15 @@ export interface MediaItem {
 	inOriginal?: boolean;
 	/** Also in a pattern that is still the original's, which actions leave as it is. */
 	inOriginalTitle?: string;
+	/** A query loop: the chosen posts it does not show. */
+	posts?: ChosenPost[];
+	/** A linked page: its original, and its translation when that is a draft. */
+	sourceId?: number;
+	translationId?: number;
+	href?: string;
+	/** A placeholder: the original's texts with it; `inSource` when only the original has it. */
+	sourceTexts?: string[];
+	inSource?: boolean;
 }
 
 export interface DocumentCost {
@@ -75,6 +99,9 @@ export interface MediaData {
 	canCheckImages: boolean;
 	sourceLanguage: string;
 	targetLanguage: string;
+	targetSlug: string;
+	/** AI translation is set up, for the linked pages and chosen posts. */
+	canTranslate: boolean;
 	editUrl: string;
 	forms: Array< { id: number; title: string } >;
 	documentCost: DocumentCost | null;

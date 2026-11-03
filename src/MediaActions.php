@@ -15,7 +15,7 @@ if (! defined('ABSPATH')) {
  */
 final class MediaActions
 {
-    public const actions = ['replace', 'restore', 'svg-translate', 'svg-labels', 'document-translate', 'document-use', 'document-discard'];
+    public const actions = ['replace', 'restore', 'svg-translate', 'svg-labels', 'document-translate', 'document-use', 'document-discard', 'query-update'];
 
     /**
      * The items with what each offers, for the list.
@@ -32,8 +32,9 @@ final class MediaActions
             $actions = [];
             $attachmentId = (int) ($item['attachmentId'] ?? 0);
 
-            // The page shows the original's pattern: changing it would change the original.
-            if (! empty($item['inOriginal'])) {
+            // The page shows the original's pattern: changing it would change the
+            // original. A linked page can still be translated.
+            if (! empty($item['inOriginal']) && $item['kind'] !== 'page') {
                 $item['actions'] = [];
                 $items[$index] = $item;
 
@@ -52,6 +53,22 @@ final class MediaActions
                 case 'embed':
                 case 'link':
                     $actions[] = 'replace';
+                    break;
+                case 'query':
+                    // Posts translated since: the list can show them now.
+                    if (array_filter((array) $item['posts'], static fn (array $post): bool => (int) $post['translationId'] > 0) !== []) {
+                        $actions[] = 'query-update';
+                    }
+
+                    // The others are AI translated from the status screen's REST action.
+                    if (MachineTranslation::isAvailable() && array_filter((array) $item['posts'], static fn (array $post): bool => (int) $post['translationId'] === 0 && (int) $post['id'] > 0) !== []) {
+                        $actions[] = 'translate';
+                    }
+                    break;
+                case 'page':
+                    if (empty($item['translationId']) && MachineTranslation::isAvailable()) {
+                        $actions[] = 'translate';
+                    }
                     break;
             }
 
@@ -144,6 +161,8 @@ final class MediaActions
                 'document-translate' => $first ? DocumentTranslation::start($place, $attachmentId) : true,
                 'document-use' => $first ? DocumentTranslation::useDraft($place, $attachmentId) : MediaReplace::attachment($place, $attachmentId, $draftId),
                 'document-discard' => $first ? DocumentTranslation::discard($place, $attachmentId) : true,
+                // The loop is the translation's own: rewritten once.
+                'query-update' => $first ? MediaReplace::query($place, (int) $item['index'], (array) $item['posts']) : true,
                 default => new WP_Error('gds_ct_media_action', __('Unknown action.', 'gds-content-translation')),
             };
 

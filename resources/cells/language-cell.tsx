@@ -272,7 +272,7 @@ function TranslatedCell( { item, slug, cell, about }: CellProps ) {
 							</MenuItem>
 						) }
 						<MenuItem onClick={ () => { close(); setMediaOpen( true ); } }>
-							{ __( 'Files, images and forms', 'gds-content-translation' ) }
+							{ __( 'Files, images, links and texts', 'gds-content-translation' ) }
 						</MenuItem>
 						<MenuItem
 							disabled={ saving }

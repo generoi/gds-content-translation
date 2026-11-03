@@ -16,7 +16,7 @@ export function MediaModal( { postId, about, onChange, onClose }: { postId: numb
 		<Modal
 			title={
 				/* translators: %s: language name of the original, e.g. Finnish */
-				sprintf( __( 'Files, images and forms in %s', 'gds-content-translation' ), source )
+				sprintf( __( 'Files, images, links and texts in %s', 'gds-content-translation' ), source )
 			}
 			onRequestClose={ onClose }
 			size="medium"
@@ -46,7 +46,7 @@ export function MediaBadge( { count, about, onOpen }: { count?: number; about: s
 	);
 	const title = sprintf(
 		/* translators: 1: number, 2: language name of the original, e.g. Finnish */
-		_n( '%1$d file, image or form still in %2$s', '%1$d files, images or forms still in %2$s', count, 'gds-content-translation' ),
+		_n( '%1$d file, image, form, link or text still in %2$s or to write', '%1$d files, images, forms, links or texts still in %2$s or to write', count, 'gds-content-translation' ),
 		count,
 		source
 	);

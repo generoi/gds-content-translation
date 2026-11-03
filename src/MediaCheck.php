@@ -25,9 +25,12 @@ if (! defined('ABSPATH')) {
  *   image ({@see checkImages()});
  * - Gravity Forms forms;
  * - embeds (YouTube, Vimeo…);
- * - links to other sites that look like the original's language.
+ * - links to other sites that look like the original's language;
+ * - and, from {@see ContentGaps}, query loops whose chosen posts have no
+ *   translation, links to pages that have none, and placeholder texts.
  *
- * Only what the original uses too counts: a translation that links its own
+ * Only what the original uses too counts (not for {@see ContentGaps}, which
+ * are the translation's own): a translation that links its own
  * PDF, or shows another image, has handled it. What is fine as it is (a
  * product code in an image, a PDF that only exists in Finnish) is marked so
  * on the translation and no longer counted.
@@ -45,6 +48,9 @@ final class MediaCheck
 
     /** One row per image a translation waits on Claude to check. */
     private const waitsMetaKey = '_gds_content_translation_media_waits';
+
+    /** One row per original whose translation the translation links or lists ({@see ContentGaps}). */
+    private const referencesMetaKey = '_gds_content_translation_references';
 
     /** On an attachment: what Claude found in it. */
     public const imageMetaKey = '_gds_content_translation_image_text';
@@ -91,13 +97,16 @@ final class MediaCheck
     /** SVGs larger than this are not read for text. */
     private const svgMaxBytes = 2_000_000;
 
-    public const kinds = ['document', 'svg', 'image', 'form', 'embed', 'link'];
+    public const kinds = ['document', 'svg', 'image', 'form', 'embed', 'link', ...ContentGaps::kinds];
 
     /** Block attributes that hold media library IDs. */
     public const attachmentAttributePattern = '/^(id|ids|mediaId|mediaIds|imageId|imageIds|.+(Image|Media)Ids?)$/';
 
     /** @var array<int, true> Posts saved in this request, checked at its end. */
     private static array $saved = [];
+
+    /** @var array<int, true> Originals whose translation was deleted in this request. */
+    private static array $deleted = [];
 
     public static function init(): void
     {
@@ -107,6 +116,8 @@ final class MediaCheck
         add_action(self::imagesHook, [self::class, 'checkImages']);
         add_action('admin_init', [self::class, 'scheduleSweep']);
         add_action('delete_post', [self::class, 'onDelete']);
+        // Before Polylang unlinks it (10).
+        add_action('before_delete_post', [self::class, 'beforeDelete'], 5);
     }
 
     /**
@@ -148,12 +159,23 @@ final class MediaCheck
     public static function checkSaved(): void
     {
         $postIds = array_keys(self::$saved);
+        $default = (string) pll_default_language('slug');
+        // Posts that got, or lost, a translation: the translations that link
+        // them or list them in a query loop count them again.
+        $needed = self::$deleted;
         self::$saved = [];
+        self::$deleted = [];
         $patterns = [];
 
         foreach ($postIds as $postId) {
             if (get_post_type($postId) === 'wp_block') {
                 $patterns[] = (int) $postId;
+            }
+
+            $language = pll_get_post_language((int) $postId);
+
+            if ($language && $language !== $default) {
+                $needed[(int) pll_get_post((int) $postId, $default) ?: (int) $postId] = true;
             }
         }
 
@@ -163,6 +185,23 @@ final class MediaCheck
 
         if ($patterns !== []) {
             self::queueRecheck([], $patterns);
+        }
+
+        // A few at once, so the editor sees the link go; many in the background.
+        $referencing = [];
+
+        foreach (array_keys($needed) as $sourceId) {
+            $referencing = array_merge($referencing, self::referencing((int) $sourceId));
+        }
+
+        $referencing = array_values(array_unique(array_diff($referencing, $postIds)));
+
+        if (count($referencing) <= 10) {
+            foreach ($referencing as $translationId) {
+                self::check($translationId);
+            }
+        } else {
+            self::queueRecheck($referencing);
         }
     }
 
@@ -280,6 +319,19 @@ final class MediaCheck
     }
 
     /**
+     * A translation deleted for good: the pages that link it count the link again.
+     */
+    public static function beforeDelete(int $postId): void
+    {
+        $language = function_exists('pll_get_post_language') ? pll_get_post_language($postId) : false;
+        $default = (string) pll_default_language('slug');
+
+        if ($language && $language !== $default && ($sourceId = (int) pll_get_post($postId, $default)) > 0) {
+            self::$deleted[$sourceId] = true;
+        }
+    }
+
+    /**
      * The posts that show any of these synced patterns.
      *
      * @param  list<int>  $patternIds
@@ -353,10 +405,10 @@ final class MediaCheck
         // Images to send to Claude, of those waited on.
         $ask = [];
 
-        foreach (self::find($post, $default, (string) $language) as $key => $item) {
-            // Where it is: the page (0) and the synced patterns it shows. An
-            // action changes the translation's own places, never the
-            // original's pattern.
+        // Where it is: the page (0) and the synced patterns it shows. An
+        // action changes the translation's own places, never the original's
+        // pattern.
+        $inPattern = static function (array $item) use ($language): array {
             $places = array_values(array_unique(array_map('intval', (array) ($item['places'] ?? [(int) ($item['in'] ?? 0)]))));
             $own = array_values(array_filter($places, static fn (int $place): bool => $place === 0 || pll_get_post_language($place) === $language));
             $originals = array_values(array_diff($places, $own));
@@ -380,6 +432,12 @@ final class MediaCheck
                     $item['inOriginalTitle'] = get_the_title($originals[0]);
                 }
             }
+
+            return $item;
+        };
+
+        foreach (self::find($post, $default, (string) $language) as $key => $item) {
+            $item = $inPattern($item);
 
             // Only what the original shows too: anything else was chosen for this
             // translation. A translated copy made here is listed, to correct it.
@@ -432,6 +490,11 @@ final class MediaCheck
             $items[] = $item;
         }
 
+        // The translation's own: whether the original has the same or not.
+        foreach (ContentGaps::find($post, $source, (string) $language, $references) as $key => $item) {
+            $items[] = $inPattern($item) + ['state' => isset($ok[$key]) ? 'ok' : 'open'];
+        }
+
         $result = [
             'version' => self::version,
             'checkedAt' => time(),
@@ -446,6 +509,14 @@ final class MediaCheck
 
         foreach (array_unique($waits) as $attachmentId) {
             add_post_meta($postId, self::waitsMetaKey, $attachmentId);
+        }
+
+        if (array_map('intval', get_post_meta($postId, self::referencesMetaKey)) !== $references) {
+            delete_post_meta($postId, self::referencesMetaKey);
+
+            foreach ($references as $referenceId) {
+                add_post_meta($postId, self::referencesMetaKey, $referenceId);
+            }
         }
 
         if ($ask !== []) {
@@ -493,8 +564,25 @@ final class MediaCheck
         self::queueRecheck(array_map('intval', $postIds));
     }
 
+    /**
+     * The translations that link an original's page or list it in a query loop.
+     *
+     * @return list<int>
+     */
+    private static function referencing(int $sourceId): array
+    {
+        global $wpdb;
+
+        return array_map('intval', $wpdb->get_col($wpdb->prepare(
+            "SELECT DISTINCT post_id FROM {$wpdb->postmeta} WHERE meta_key = %s AND meta_value = %d",
+            self::referencesMetaKey,
+            $sourceId
+        )));
+    }
+
     private static function forget(int $postId): void
     {
+        delete_post_meta($postId, self::referencesMetaKey);
         delete_post_meta($postId, self::metaKey);
         delete_post_meta($postId, self::countMetaKey);
         delete_post_meta($postId, self::waitsMetaKey);
@@ -1329,6 +1417,9 @@ final class MediaCheck
             'canCheckImages' => TranslationAudit::isEnabled(),
             'sourceLanguage' => $default ? StatusList::languageName($default) : '',
             'targetLanguage' => $language ? StatusList::languageName($language) : '',
+            // What "AI translation" of a linked page or chosen post needs.
+            'targetSlug' => $language ? $language->slug : '',
+            'canTranslate' => MachineTranslation::isAvailable(),
             'editUrl' => (string) get_edit_post_link($postId, 'raw'),
             // What the choices need: the forms to pick from, what a DeepL document costs.
             'forms' => in_array('replace', $offers, true) && in_array('form', array_column($items, 'kind'), true) ? MediaActions::forms() : [],

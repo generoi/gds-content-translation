@@ -422,16 +422,6 @@ class Admin
             'ajaxUrl' => admin_url('admin-ajax.php'),
             'nonce' => wp_create_nonce('gds_content_translation'),
             'restNamespace' => Rest\StatusController::namespace,
-            'linkTranslate' => [
-                'translating' => __('Translating…', 'gds-content-translation'),
-                'queued' => __('Queued…', 'gds-content-translation'),
-                /* translators: %s: language name */
-                'done' => __('Translated. The link now goes to the %s page.', 'gds-content-translation'),
-                'edit' => __('Edit', 'gds-content-translation'),
-                'review' => __('AI review', 'gds-content-translation'),
-                /* translators: %s: error message */
-                'failed' => __('Translation failed: %s', 'gds-content-translation'),
-            ],
             'proofread' => [
                 'checked' => __('Marked as proofread.', 'gds-content-translation'),
                 'unchecked' => __('Marked as not proofread.', 'gds-content-translation'),
