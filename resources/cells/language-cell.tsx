@@ -16,7 +16,7 @@
  */
 import { Dropdown, DropdownMenu, MenuGroup, MenuItem, VisuallyHidden, __experimentalConfirmDialog as ConfirmDialog } from '@wordpress/components';
 import { speak } from '@wordpress/a11y';
-import { useState } from '@wordpress/element';
+import { useEffect, useState } from '@wordpress/element';
 import { __, sprintf } from '@wordpress/i18n';
 import { addQueryArgs } from '@wordpress/url';
 import { getSettings, languageCode } from '../settings';
@@ -33,6 +33,24 @@ const MISSING: Cell = { state: 'missing', postId: 0 };
 
 /** The Undo of a cell's trash, taken back once the cell changes another way. */
 const undoNoticeId = ( key: string ): string => `gds-ct-undo-${ key }`;
+
+/**
+ * Cells whose AI translation was started from the cell, to announce when
+ * it is done. Outside the cells: a cell is drawn anew when its row is.
+ */
+const announceWhenDone = new Set< string >();
+
+/** Focus on the cell itself, once the button that had it is gone. */
+function focusCell( key: string ): void {
+	window.requestAnimationFrame( () => {
+		const cell = document.querySelector< HTMLElement >( `[data-cell="${ key }"]` );
+
+		// Only when focus was lost, not when the user went on elsewhere.
+		if ( cell && ( document.activeElement === document.body || ! document.activeElement ) ) {
+			cell.focus();
+		}
+	} );
+}
 
 /** Opens a menu item's page: menu items are buttons, not links. */
 function go( url: string, newTab: boolean ): void {
@@ -68,6 +86,37 @@ export function LanguageCell( { item, slug, name }: { item: Row; slug: string; n
 	const cell = item.languages[ slug ] ?? MISSING;
 	const key = cellKey( item.sourceId, slug );
 	const about = aboutCell( item.title, name );
+	const jobStatus = cell.job?.status;
+	const jobError = cell.job?.error ?? '';
+
+	// An AI translation started here is done: say so, where it was started.
+	useEffect( () => {
+		if ( ! announceWhenDone.has( key ) ) {
+			return;
+		}
+
+		if ( cell.state === 'translated' ) {
+			announceWhenDone.delete( key );
+			speak(
+				sprintf(
+					/* translators: %s: e.g. the Swedish translation of "Etusivu" */
+					__( 'AI translation done: %s is ready.', 'gds-content-translation' ),
+					about
+				)
+			);
+		} else if ( jobStatus === 'failed' ) {
+			announceWhenDone.delete( key );
+			speak(
+				sprintf(
+					/* translators: 1: e.g. the Swedish translation of "Etusivu", 2: error message */
+					__( 'AI translation of %1$s failed: %2$s', 'gds-content-translation' ),
+					about,
+					jobError
+				),
+				'assertive'
+			);
+		}
+	}, [ key, cell.state, jobStatus, jobError, about ] );
 
 	return (
 		<div className={ `gds-ct__cell gds-ct__cell--${ cell.state }${ screen.busy[ key ] === 'saving' ? ' is-saving' : '' }` } data-cell={ key } tabIndex={ -1 }>
@@ -373,6 +422,9 @@ function MissingCell( { item, slug, name, cell, about }: CellProps ) {
 		}
 
 		screen.setBusy( key, 'translating' );
+		// The button is replaced by "Translating…": focus stays in the cell.
+		focusCell( key );
+		announceWhenDone.add( key );
 		speak(
 			sprintf(
 				/* translators: 1: language name, 2: post title. */
@@ -386,6 +438,7 @@ function MissingCell( { item, slug, name, cell, about }: CellProps ) {
 			.run( 'translate', [ item.sourceId ], { languages: [ slug ], ...( followup ? { followup } : {} ), ...( instructions ? { instructions } : {} ) } )
 			.then( ( response ) => {
 				if ( ! response.ok ) {
+					announceWhenDone.delete( key );
 					notifyError( response.results[ 0 ]?.message || response.message );
 
 					return;
@@ -399,7 +452,7 @@ function MissingCell( { item, slug, name, cell, about }: CellProps ) {
 				screen.followJobs();
 				screen.refresh( true );
 			} )
-			.catch( () => undefined )
+			.catch( () => announceWhenDone.delete( key ) )
 			.finally( () => screen.setBusy( key, null ) );
 	};
 
