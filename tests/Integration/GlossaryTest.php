@@ -266,9 +266,21 @@ class GlossaryTest extends AdminActionTestCase
 
         $this->term('cart', 'ostoskori');
         DeeplGlossary::sync();
-        $this->assertSame(['POST', 'DELETE'], array_column(array_slice($this->deeplRequests, 1), 'method'));
-        $this->assertStringEndsWith('/v3/glossaries/glossary-1', $this->deeplRequests[2]['url']);
+        $this->assertSame(['POST'], array_column(array_slice($this->deeplRequests, 1), 'method'));
         $this->assertSame('glossary-2', DeeplGlossary::status()['glossaryId']);
+
+        // The old one goes a quarter of an hour later: a translation running
+        // now still names it.
+        $deleteAt = wp_next_scheduled('gds_content_translation_delete_glossary', ['glossary-1']);
+        $this->assertGreaterThanOrEqual(time() + 14 * MINUTE_IN_SECONDS, $deleteAt);
+        do_action('gds_content_translation_delete_glossary', 'glossary-1');
+        $this->assertSame('DELETE', $this->deeplRequests[2]['method']);
+        $this->assertStringEndsWith('/v3/glossaries/glossary-1', $this->deeplRequests[2]['url']);
+
+        // Never the current one.
+        do_action('gds_content_translation_delete_glossary', 'glossary-2');
+        $this->assertCount(3, $this->deeplRequests);
+        wp_clear_scheduled_hook('gds_content_translation_delete_glossary', ['glossary-1']);
     }
 
     public function test_a_refused_glossary_keeps_the_old_one_and_says_why(): void
@@ -285,6 +297,49 @@ class GlossaryTest extends AdminActionTestCase
         $this->assertSame('old', $status['glossaryId']);
         $this->assertTrue($status['pending']);
         $this->assertStringContainsString('Invalid entries', $status['error']);
+    }
+
+    public function test_a_failed_send_is_tried_again_later_not_before_every_translation(): void
+    {
+        add_filter('gds_content_translation_deepl_api_key', static fn (): string => 'key');
+        $this->term('wall brace', 'seinätuki');
+        $this->deeplRefuses = true;
+
+        $this->assertWPError(DeeplGlossary::sync());
+        $retryAt = DeeplGlossary::state()['retryAt'];
+        $this->assertSame(time() + 5 * MINUTE_IN_SECONDS, $retryAt);
+        $this->assertSame($retryAt, wp_next_scheduled('gds_content_translation_sync_glossary'));
+
+        // A translation meanwhile does not wait for DeepL to refuse it again.
+        DeeplGlossary::syncIfPending();
+        $this->assertCount(1, $this->deeplRequests);
+
+        // Each failure waits longer.
+        $this->assertWPError(DeeplGlossary::sync());
+        $this->assertSame(time() + 10 * MINUTE_IN_SECONDS, DeeplGlossary::state()['retryAt']);
+
+        // Once it goes through, translations send changes again.
+        $this->deeplRefuses = false;
+        $this->assertTrue(DeeplGlossary::sync());
+        $this->assertSame([0, 0], [DeeplGlossary::state()['failures'], DeeplGlossary::state()['retryAt']]);
+    }
+
+    public function test_a_retry_without_the_glossary_stays_without_it(): void
+    {
+        $missing = new \ReflectionProperty(DeeplGlossary::class, 'missingPairs');
+        update_option(DeeplGlossary::optionKey, ['glossaryId' => 'g1', 'dictionaries' => [['sourceLang' => 'EN', 'targetLang' => 'FI', 'entries' => 1]]]);
+        $url = 'https://api.deepl.com/v2/translate';
+        $sent = DeeplGlossary::addToRequest(['body' => wp_json_encode(['source_lang' => 'EN', 'target_lang' => 'FI', 'text' => ['x']])], $url);
+        $this->assertSame('g1', json_decode($sent['body'], true)['glossary_id']);
+
+        try {
+            // DeepL has no such dictionary in it after all; Polylang Pro tries again without.
+            apply_filters('http_response', $this->response(400, '{"message":"No dictionary found for language pair EN-FI in glossary 0123-abcd"}'), $sent, $url);
+            $retry = DeeplGlossary::addToRequest(['body' => wp_json_encode(['source_lang' => 'EN', 'target_lang' => 'FI', 'text' => ['x']])], $url);
+            $this->assertArrayNotHasKey('glossary_id', json_decode($retry['body'], true));
+        } finally {
+            $missing->setValue(null, []);
+        }
     }
 
     public function test_deepl_translate_requests_get_the_glossary_of_their_language_pair(): void

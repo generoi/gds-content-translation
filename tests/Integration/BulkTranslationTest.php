@@ -164,11 +164,38 @@ class BulkTranslationTest extends RestTestCase
         $postId = $this->createPost('en');
         BulkTranslation::enqueue([$postId], ['fi']);
 
-        BulkTranslation::work(0.0, static fn (): WP_Error => new WP_Error('gds_ct_locked', 'Locked'));
-        $this->assertSame('queued', BulkTranslation::job($postId, 'fi')['status']);
+        wp_clear_scheduled_hook('gds_content_translation_run_bulk');
+        BulkTranslation::work(60.0, static fn (): WP_Error => new WP_Error('gds_ct_locked', 'Locked'));
+        $job = BulkTranslation::job($postId, 'fi');
+        $this->assertSame('queued', $job['status']);
+        $this->assertSame(1, $job['attempts'], 'Not tried again at once.');
+        $this->assertGreaterThan(time(), $job['notBefore']);
+        $this->assertSame($job['notBefore'], wp_next_scheduled('gds_content_translation_run_bulk'), 'A worker comes back for it.');
+        $this->assertFalse(BulkTranslation::isStalled());
 
+        // Its minute is up.
+        update_post_meta($postId, '_gds_ct_job_fi', array_merge(get_post_meta($postId, '_gds_ct_job_fi', true), ['notBefore' => time() - 1]));
         BulkTranslation::work(0.0, static fn (): WP_Error => new WP_Error('gds_ct_exists', 'Translation already exists.'));
         $this->assertSame('skipped', BulkTranslation::job($postId, 'fi')['status']);
+    }
+
+    public function test_a_worker_given_up_for_dead_leaves_the_new_worker_alone(): void
+    {
+        $first = $this->createPost('en');
+        $second = $this->createPost('en');
+        BulkTranslation::enqueue([$first, $second], ['fi']);
+
+        // While the first job runs, another worker takes over the row.
+        BulkTranslation::work(60.0, function (int $sourceId, string $language) {
+            update_option('gds_ct_bulk_worker', time().':other');
+
+            return $this->fakeCreate($sourceId, $language);
+        });
+
+        $this->assertCount(1, $this->created, 'It stops: the new worker goes on.');
+        wp_cache_delete('alloptions', 'options');
+        wp_cache_delete('gds_ct_bulk_worker', 'options');
+        $this->assertSame(time().':other', get_option('gds_ct_bulk_worker'), 'Its row is not removed.');
     }
 
     public function test_only_one_worker_runs_at_a_time(): void

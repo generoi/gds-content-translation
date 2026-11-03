@@ -44,12 +44,21 @@ export function SourceCell( { item }: { item: RemarkRow } ) {
 }
 
 export function TranslationCell( { item }: { item: RemarkRow } ) {
-	const diff = isOpen( item ) && item.suggestionDiff !== '' && ! item.changed;
+	const shown = isOpen( item ) && item.suggestion !== '' && ! item.changed;
+	const diff = shown && item.suggestionDiff !== '';
+	// Too long to compare: the suggestion under the translation instead.
+	const plain = shown && ! diff && !! item.suggestionText;
 
 	return (
 		<div className="gds-ct-review__text">
 			{ /* Server-sanitised HTML: the translation, or it with the suggestion's changes marked. */ }
 			<div className={ diff ? 'gds-ct-review__diff' : undefined } dangerouslySetInnerHTML={ { __html: diff ? item.suggestionDiff : item.translation } } />
+			{ plain && (
+				<div className="gds-ct-review__suggestion">
+					<span className="gds-ct-review__tag">{ __( 'Suggestion', 'gds-content-translation' ) }</span>
+					<div dangerouslySetInnerHTML={ { __html: item.suggestionText } } />
+				</div>
+			) }
 			{ item.changed && <span className="gds-ct-review__tag">{ __( 'Changed since the review', 'gds-content-translation' ) }</span> }
 		</div>
 	);

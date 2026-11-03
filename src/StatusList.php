@@ -490,7 +490,7 @@ final class StatusList
             'status' => $audit['status'],
             'errors' => $audit['errors'],
             'other' => $audit['other'],
-            'edited' => $audit['status'] === 'done' && $post && $audit['contentHash'] !== '' && TranslationAudit::contentHash((int) $post->ID) !== $audit['contentHash'],
+            'edited' => $audit['status'] === 'done' && $post && TranslationAudit::editedSince((int) $post->ID, $audit['contentHash']),
             'error' => $audit['status'] === 'failed' ? (string) (TranslationAudit::get($postId)['error'] ?? '') : '',
             'url' => AuditReview::getUrl($postId),
         ];
