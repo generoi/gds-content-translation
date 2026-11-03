@@ -24,8 +24,8 @@ export function filterLabels(): Record< FilterKind, string > {
 		running: __( 'AI review running', 'gds-content-translation' ),
 		media: source
 			? /* translators: %s: language name of the original, e.g. Finnish */
-			  sprintf( __( 'Files still in %s', 'gds-content-translation' ), source )
-			: __( 'Files still in the original language', 'gds-content-translation' ),
+			  sprintf( __( 'Files, links and texts in %s', 'gds-content-translation' ), source )
+			: __( 'Files, links and texts in the original language', 'gds-content-translation' ),
 	};
 }
 

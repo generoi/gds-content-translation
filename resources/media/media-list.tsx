@@ -6,6 +6,9 @@
  * - translate an SVG's labels (DeepL), and correct them;
  * - have DeepL draft a document, after its cost is shown, and use the draft;
  * - translate a form (Form translations);
+ * - for a query loop whose chosen posts have no translation, or a link to a
+ *   page that has none: AI translate them, then have the loop show them;
+ * - for a text still to be written ("[TÄYTÄ]"): write it, in the editor;
  * - or keep it: fine as it is.
  *
  * Translated copies stay listed, to correct or undo them. The status screen
@@ -14,13 +17,13 @@
 import { Button, ExternalLink, Flex, Modal, SelectControl, Spinner, TextControl, __experimentalConfirmDialog as ConfirmDialog } from '@wordpress/components';
 import { useEffect, useRef, useState } from '@wordpress/element';
 import { __, _n, sprintf } from '@wordpress/i18n';
-import { errorMessage } from '../api';
+import { errorMessage, runAction } from '../api';
 import { notifyError, notifySuccess } from '../ui/notify';
 import { fetchMedia, markMedia, runMediaAction } from './api';
 import { pickMedia } from './pick-media';
-import type { DocumentCost, MediaData, MediaItem, MediaKind } from './types';
+import type { ChosenPost, DocumentCost, MediaData, MediaItem, MediaKind } from './types';
 
-const order: MediaKind[] = [ 'document', 'form', 'svg', 'image', 'embed', 'link' ];
+const order: MediaKind[] = [ 'placeholder', 'query', 'document', 'form', 'svg', 'image', 'embed', 'link', 'page' ];
 
 function kindLabel( kind: MediaKind ): string {
 	return {
@@ -30,6 +33,9 @@ function kindLabel( kind: MediaKind ): string {
 		form: __( 'Form', 'gds-content-translation' ),
 		embed: __( 'Embed', 'gds-content-translation' ),
 		link: __( 'Link', 'gds-content-translation' ),
+		query: __( 'List of posts', 'gds-content-translation' ),
+		page: __( 'Link to a page', 'gds-content-translation' ),
+		placeholder: __( 'Text to write', 'gds-content-translation' ),
 	}[ kind ];
 }
 
@@ -68,6 +74,36 @@ function hint( item: MediaItem, data: MediaData ): string {
 		case 'link':
 			/* translators: %s: language name of the original, e.g. Finnish */
 			return sprintf( __( 'Probably a page in %s on another site. Link its version in this language, if it has one.', 'gds-content-translation' ), source );
+		case 'query':
+			return item.posts?.some( ( post ) => post.translationId > 0 )
+				? __( 'The list does not show the chosen posts below. Some are translated now: update the list to show them, and translate the others.', 'gds-content-translation' )
+				: sprintf(
+						/* translators: %s: language name of the translation, e.g. Swedish */
+						__( 'The list shows only posts in %s, and the chosen posts below have no translation, so the section shows fewer posts or none. Translate them, then update the list.', 'gds-content-translation' ),
+						data.targetLanguage
+				  );
+		case 'page':
+			return item.translationId
+				? sprintf(
+						/* translators: 1: language name of the translation, e.g. Swedish, 2: language name of the original, e.g. Finnish */
+						__( 'The %1$s version of this page is a draft, so links to it still lead to the %2$s page. They change by themselves once it is published.', 'gds-content-translation' ),
+						data.targetLanguage,
+						source
+				  )
+				: sprintf(
+						/* translators: 1: language name of the translation, e.g. Swedish, 2: language name of the original, e.g. Finnish */
+						__( 'This page has no %1$s version yet, so links to it lead to the %2$s page. Once it is translated, they go to the translation by themselves.', 'gds-content-translation' ),
+						data.targetLanguage,
+						source
+				  );
+		case 'placeholder':
+			return item.inSource
+				? sprintf(
+						/* translators: %s: language name of the original, e.g. Finnish */
+						__( 'The %s original has a text still to be written. The translation may have it in other words: write it in the original, then in the translation.', 'gds-content-translation' ),
+						source
+				  )
+				: __( 'A text still to be written. Write it in the translation in the editor, and in the original if it is there too.', 'gds-content-translation' );
 	}
 }
 
@@ -230,9 +266,47 @@ interface ItemProps {
 	locked: boolean;
 	onMark: ( ok: boolean ) => void;
 	onAction: ( action: string, args?: { value?: string | number; labels?: Record< string, string > }, done?: string ) => Promise< boolean >;
+	/** Originals whose AI translation was asked for here. */
+	queued: number[];
+	onTranslate: ( sourceId: number, title: string ) => void;
 }
 
-function Item( { item, data, busy, locked, onMark, onAction }: ItemProps ) {
+/** A translate button for an original, or that it is queued. */
+function TranslateButton( { sourceId, title, data, queued, disabled, onTranslate }: { sourceId: number; title: string; data: MediaData; queued: number[]; disabled: boolean; onTranslate: ItemProps[ 'onTranslate' ] } ) {
+	if ( queued.includes( sourceId ) ) {
+		return <span className="gds-ct-media__done">{ __( 'Queued for AI translation', 'gds-content-translation' ) }</span>;
+	}
+
+	return (
+		<Button variant="secondary" size="compact" disabled={ disabled } accessibleWhenDisabled onClick={ () => onTranslate( sourceId, title ) }>
+			{
+				/* translators: %s: language name, e.g. Swedish */
+				sprintf( __( 'AI translate into %s', 'gds-content-translation' ), data.targetLanguage )
+			}
+			<span className="screen-reader-text">{ `: ${ title }` }</span>
+		</Button>
+	);
+}
+
+/** A query loop's chosen posts that it does not show. */
+function ChosenPosts( { posts, data, queued, disabled, onTranslate }: { posts: ChosenPost[]; data: MediaData; queued: number[]; disabled: boolean; onTranslate: ItemProps[ 'onTranslate' ] } ) {
+	return (
+		<ul className="gds-ct-media__texts">
+			{ posts.map( ( post, index ) => (
+				<li key={ `${ post.field }-${ post.id }-${ index }` }>
+					{ post.url ? <ExternalLink href={ post.url }>{ post.title }</ExternalLink> : post.title }
+					{ post.field === 'parents' && ` (${ __( 'parent page', 'gds-content-translation' ) })` }{ ' ' }
+					{ post.translationId > 0 && (
+						<span className="gds-ct-media__done">{ post.published ? __( 'Translated', 'gds-content-translation' ) : __( 'Translated, draft', 'gds-content-translation' ) }</span>
+					) }
+					{ post.translationId === 0 && post.id > 0 && data.canTranslate && <TranslateButton sourceId={ post.id } title={ post.title } data={ data } queued={ queued } disabled={ disabled } onTranslate={ onTranslate } /> }
+				</li>
+			) ) }
+		</ul>
+	);
+}
+
+function Item( { item, data, busy, locked, onMark, onAction, queued, onTranslate }: ItemProps ) {
 	const [ editing, setEditing ] = useState< '' | 'url' | 'form' | 'labels' | 'document' >( '' );
 	const ok = item.state === 'ok';
 	const translated = item.state === 'translated';
@@ -257,6 +331,9 @@ function Item( { item, data, busy, locked, onMark, onAction }: ItemProps ) {
 		form: __( 'Show another form…', 'gds-content-translation' ),
 		embed: __( 'Change the address…', 'gds-content-translation' ),
 		link: __( 'Change the link…', 'gds-content-translation' ),
+		query: '',
+		page: '',
+		placeholder: '',
 	}[ item.kind ];
 
 	const replace = () => {
@@ -296,6 +373,18 @@ function Item( { item, data, busy, locked, onMark, onAction }: ItemProps ) {
 				) }
 				{ ! ok && hint( item, data ) && <p className="gds-ct-media__hint">{ hint( item, data ) }</p> }
 				{ ! ok && ! translated && !! item.texts?.length && <Texts texts={ item.texts } /> }
+				{ ! ok && item.kind === 'placeholder' && !! item.sourceTexts?.length && (
+					<>
+						<p className="gds-ct-media__hint">
+							{
+								/* translators: %s: language name of the original, e.g. Finnish */
+								sprintf( __( 'In the %s original:', 'gds-content-translation' ), data.sourceLanguage )
+							}
+						</p>
+						<Texts texts={ item.sourceTexts } />
+					</>
+				) }
+				{ ! ok && item.kind === 'query' && !! item.posts?.length && <ChosenPosts posts={ item.posts } data={ data } queued={ queued } disabled={ busy || locked } onTranslate={ onTranslate } /> }
 				{ translated && !! item.labels?.length && <Texts texts={ item.labels.map( ( label ) => label.translation ) } /> }
 
 				{ item.kind === 'form' && form && ! ok && (
@@ -343,6 +432,24 @@ function Item( { item, data, busy, locked, onMark, onAction }: ItemProps ) {
 				{ editing === 'form' && <FormChoice item={ item } forms={ data.forms } onCancel={ () => setEditing( '' ) } onSave={ ( formId ) => void onAction( 'replace', { value: formId }, __( 'The translation now shows the other form.', 'gds-content-translation' ) ).then( ( done ) => done && setEditing( '' ) ) } /> }
 
 				<div className="gds-ct-media__actions">
+					{ has( 'query-update' ) && ! ok && (
+						<Button variant="primary" size="compact" isBusy={ busy } disabled={ busy || locked } accessibleWhenDisabled onClick={ () => void onAction( 'query-update', {}, __( 'The list now shows the translated posts.', 'gds-content-translation' ) ) }>
+							{ __( 'Update the list', 'gds-content-translation' ) }
+						</Button>
+					) }
+					{ item.kind === 'page' && has( 'translate' ) && ! ok && item.sourceId && <TranslateButton sourceId={ item.sourceId } title={ item.title } data={ data } queued={ queued } disabled={ busy || locked } onTranslate={ onTranslate } /> }
+					{ item.kind === 'page' && item.editUrl && ! ok && (
+						<Button variant="tertiary" size="compact" href={ item.editUrl } target="_blank" rel="noopener noreferrer">
+							{ __( 'Edit the original', 'gds-content-translation' ) }
+							<span className="screen-reader-text">{ `: ${ item.title } ${ __( '(opens in a new tab)', 'gds-content-translation' ) }` }</span>
+						</Button>
+					) }
+					{ item.kind === 'placeholder' && data.editUrl && ! ok && (
+						<Button variant="tertiary" size="compact" href={ data.editUrl } target="_blank" rel="noopener noreferrer">
+							{ __( 'Edit the translation', 'gds-content-translation' ) }
+							<span className="screen-reader-text">{ __( '(opens in a new tab)', 'gds-content-translation' ) }</span>
+						</Button>
+					) }
 					{ has( 'svg-translate' ) && ! ok && (
 						<Button variant="primary" size="compact" isBusy={ busy } disabled={ busy || locked } accessibleWhenDisabled onClick={ () => void onAction( 'svg-translate', {}, __( 'The labels are translated. The translation shows the copy of the illustration.', 'gds-content-translation' ) ) }>
 							{ __( 'Translate the labels', 'gds-content-translation' ) }
@@ -434,6 +541,7 @@ export function MediaList( { postId, onChange }: Props ) {
 	const [ data, setData ] = useState< MediaData | null >( null );
 	const [ failed, setFailed ] = useState( '' );
 	const [ busy, setBusy ] = useState( '' );
+	const [ queued, setQueued ] = useState< number[] >( [] );
 
 	useEffect( () => {
 		let current = true;
@@ -518,6 +626,33 @@ export function MediaList( { postId, onChange }: Props ) {
 			.finally( () => setBusy( '' ) );
 	};
 
+	// The status screen's AI translation, in the background: the list counts
+	// the post again once its translation is saved.
+	const translate = ( sourceId: number, title: string ) => {
+		setQueued( ( ids ) => [ ...ids, sourceId ] );
+		runAction( 'translate', [ sourceId ], { languages: [ data.targetSlug ] } )
+			.then( ( response ) => {
+				const result = response.results[ 0 ];
+
+				if ( ! response.ok && result && ! result.ok ) {
+					throw new Error( result.message || response.message );
+				}
+
+				notifySuccess(
+					sprintf(
+						/* translators: 1: post title, 2: language name, e.g. Swedish */
+						__( '“%1$s” is queued for AI translation into %2$s. This list counts it again once it is translated.', 'gds-content-translation' ),
+						title,
+						data.targetLanguage
+					)
+				);
+			} )
+			.catch( ( caught: unknown ) => {
+				setQueued( ( ids ) => ids.filter( ( id ) => id !== sourceId ) );
+				notifyError( errorMessage( caught, __( 'That did not work. Try again.', 'gds-content-translation' ) ) );
+			} );
+	};
+
 	const rank = { open: 0, translated: 1, ok: 2, unchecked: 3 };
 	const sorted = data.items
 		.filter( ( item ) => item.state !== 'unchecked' )
@@ -528,14 +663,14 @@ export function MediaList( { postId, onChange }: Props ) {
 			{ sorted.length ? (
 				<ul className="gds-ct-media__list">
 					{ sorted.map( ( item ) => (
-						<Item key={ item.key } item={ item } data={ data } busy={ busy === item.key } locked={ busy !== '' && busy !== item.key } onMark={ ( ok ) => mark( item, ok ) } onAction={ act( item ) } />
+						<Item key={ item.key } item={ item } data={ data } busy={ busy === item.key } locked={ busy !== '' && busy !== item.key } onMark={ ( ok ) => mark( item, ok ) } onAction={ act( item ) } queued={ queued } onTranslate={ translate } />
 					) ) }
 				</ul>
 			) : (
 				<p className="gds-ct-media__empty">
 					{
 						/* translators: %s: language name of the original, e.g. Finnish */
-						sprintf( __( 'No files, images or forms in %s found.', 'gds-content-translation' ), data.sourceLanguage )
+						sprintf( __( 'No files, images, forms or links in %s found, and no texts still to write.', 'gds-content-translation' ), data.sourceLanguage )
 					}
 				</p>
 			) }

@@ -68,6 +68,62 @@ final class MediaReplace
     }
 
     /**
+     * Have a query loop show the chosen posts translated since: each place
+     * that holds 0 or another language's post gets its translation (0
+     * while it has none).
+     *
+     * @param  int  $index  The loop's place among the query loops of the post.
+     * @param  list<array{id: int, field: string}>  $posts  The originals, in the order the check found them.
+     */
+    public static function query(int $postId, int $index, array $posts): true|WP_Error
+    {
+        $language = (string) pll_get_post_language($postId);
+        $default = (string) pll_default_language('slug');
+        $seen = -1;
+
+        $result = self::change($postId, static function (array $block) use ($index, $posts, $language, $default, &$seen): array {
+            if ($block['blockName'] !== 'core/query' || ++$seen !== $index || ! is_array($block['attrs']['query'] ?? null)) {
+                return $block;
+            }
+
+            $byField = [];
+
+            foreach ($posts as $post) {
+                $byField[(string) $post['field']][] = (int) $post['id'];
+            }
+
+            foreach ($byField as $field => $sourceIds) {
+                $ids = (array) ($block['attrs']['query'][$field] ?? []);
+
+                foreach ($ids as $place => $id) {
+                    $idLanguage = (int) $id > 0 ? pll_get_post_language((int) $id) : false;
+
+                    if ((int) $id > 0 && (! $idLanguage || $idLanguage === $language)) {
+                        continue;
+                    }
+
+                    // The check listed the places in order.
+                    $sourceId = array_shift($sourceIds) ?? 0;
+                    $sourceId = $sourceId > 0 ? $sourceId : ((int) $id > 0 ? ((int) pll_get_post((int) $id, $default) ?: (int) $id) : 0);
+                    $translationId = $sourceId > 0 ? (int) pll_get_post($sourceId, $language) : 0;
+
+                    if ($translationId > 0 && get_post_status($translationId) !== 'trash') {
+                        $ids[$place] = $translationId;
+                    } elseif ($field === 'include') {
+                        $ids[$place] = 0;
+                    }
+                }
+
+                $block['attrs']['query'][$field] = $ids;
+            }
+
+            return $block;
+        }, static fn (string $content): string => $content);
+
+        return self::done($postId, $result);
+    }
+
+    /**
      * Show another Gravity Forms form where the translation shows one.
      */
     public static function form(int $postId, int $oldId, int $newId): true|WP_Error

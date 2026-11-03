@@ -462,7 +462,6 @@ final class AuditReview
                     <?php } ?>
                 </div>
             </details>
-            <?php self::renderLinks($post); ?>
         </div>
 
         <?php if ($review['segments'] !== []) { ?>
@@ -523,130 +522,6 @@ final class AuditReview
             _n('Run the review again? Its %d open remark is replaced by the new review’s remarks.', 'Run the review again? Its %d open remarks are replaced by the new review’s remarks.', $openTotal, 'gds-content-translation'),
             $openTotal
         );
-    }
-
-    /**
-     * Internal links that still lead to the original language, because the
-     * page they point to has no translation yet. They switch by themselves
-     * once it has one; until then, offer to create it.
-     */
-    private static function renderLinks(\WP_Post $post): void
-    {
-        $language = PLL()->model->post->get_language($post->ID);
-
-        if (! $language || ! preg_match_all('/href="([^"#][^"]*)"/', $post->post_content, $matches)) {
-            return;
-        }
-
-        $missing = [];
-
-        foreach (array_unique($matches[1]) as $href) {
-            // The site's own address: Polylang turns home_url() into the
-            // admin's language (…/en), where the original's path is no page.
-            $home = untrailingslashit((string) get_option('home'));
-            $url = str_starts_with($href, '/') ? $home.$href : $href;
-
-            if (! str_starts_with($url, $home)) {
-                continue;
-            }
-
-            $targetId = self::postIdOfUrl($url);
-
-            if ($targetId <= 0 || $targetId === $post->ID || ! pll_is_translated_post_type(get_post_type($targetId))) {
-                continue;
-            }
-
-            $translations = pll_get_post_translations($targetId);
-
-            if (isset($translations[$language->slug]) && get_post_status($translations[$language->slug]) !== 'trash') {
-                continue;
-            }
-
-            $default = pll_default_language('slug');
-            $missing[$targetId] = [
-                'href' => $href,
-                'sourceId' => (int) ($translations[$default] ?? $targetId),
-            ];
-        }
-
-        if ($missing === []) {
-            return;
-        }
-
-        $canTranslate = MachineTranslation::isAvailable();
-        $languageName = StatusList::languageName($language);
-        $default = PLL()->model->get_language((string) pll_default_language('slug'));
-        $sourceName = $default ? StatusList::languageName($default) : '';
-
-        ?>
-        <details class="gds-content-translation-review__links">
-            <summary><?php echo esc_html(sprintf(
-                /* translators: 1: number of links, 2: language name of the original, e.g. Finnish */
-                _n('%1$d link leads to a %2$s page', '%1$d links lead to %2$s pages', count($missing), 'gds-content-translation'),
-                count($missing),
-                $sourceName
-            )); ?></summary>
-            <div class="gds-content-translation-review__details">
-            <p class="description"><?php echo esc_html(sprintf(
-                /* translators: 1: language name of the translation, e.g. English */
-                __('These pages have no %1$s version yet. Once one is created, the links on this page go to it by themselves; nothing needs to be edited.', 'gds-content-translation'),
-                $languageName
-            )); ?></p>
-            <ul class="gds-content-translation-review__links-list">
-                <?php foreach ($missing as $link) { ?>
-                    <li data-gds-ct-link-row>
-                        <span class="gds-content-translation-review__link-title" title="<?php echo esc_attr($link['href']); ?>"><?php echo esc_html(get_the_title($link['sourceId'])); ?></span>
-                        <?php if ($canTranslate) { ?>
-                            <?php // AI translates the page in the background, the way the status screen does; this row follows it.?>
-                            <button
-                                type="button"
-                                class="button button-small gds-content-translation-review__link-translate"
-                                data-source-id="<?php echo esc_attr((string) $link['sourceId']); ?>"
-                                data-lang="<?php echo esc_attr($language->slug); ?>"
-                                data-language-name="<?php echo esc_attr($languageName); ?>"
-                            >
-                                <?php echo esc_html(sprintf(
-                                    /* translators: %s: language name */
-                                    __('Translate into %s', 'gds-content-translation'),
-                                    $languageName
-                                )); ?>
-                                <span class="screen-reader-text"><?php echo esc_html(get_the_title($link['sourceId'])); ?></span>
-                            </button>
-                        <?php } ?>
-                        <span class="gds-content-translation-review__link-status" role="status"></span>
-                    </li>
-                <?php } ?>
-            </ul>
-            </div>
-        </details>
-        <?php
-    }
-
-    /**
-     * The post an internal URL points to, whatever language the admin bar
-     * filters the admin by: with "English" chosen there, url_to_postid()
-     * looks only among English posts and finds no Finnish page.
-     */
-    private static function postIdOfUrl(string $url): int
-    {
-        $polylang = PLL();
-        $current = $polylang->curlang ?? null;
-        $filter = property_exists($polylang, 'filter_lang') ? $polylang->filter_lang : null;
-        $polylang->curlang = null;
-
-        if (property_exists($polylang, 'filter_lang')) {
-            $polylang->filter_lang = null;
-        }
-
-        try {
-            return (int) url_to_postid($url);
-        } finally {
-            $polylang->curlang = $current;
-
-            if (property_exists($polylang, 'filter_lang')) {
-                $polylang->filter_lang = $filter;
-            }
-        }
     }
 
     /**
