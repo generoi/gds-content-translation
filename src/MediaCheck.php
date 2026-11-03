@@ -1070,6 +1070,8 @@ final class MediaCheck
             'canCheckImages' => TranslationAudit::isEnabled(),
             'sourceLanguage' => $default ? StatusList::languageName($default) : '',
             'targetLanguage' => $language ? StatusList::languageName($language) : '',
+            'targetSlug' => $language ? $language->slug : '',
+            'canTranslateAlts' => ImageAlt::isActive() && DeeplApi::isAvailable(),
             'editUrl' => (string) get_edit_post_link($postId, 'raw'),
             // What the choices need: the forms to pick from, what a DeepL document costs.
             'forms' => in_array('replace', $offers, true) && in_array('form', array_column($items, 'kind'), true) ? MediaActions::forms() : [],

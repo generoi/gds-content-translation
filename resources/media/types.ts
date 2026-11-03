@@ -41,6 +41,8 @@ export interface MediaItem {
 	inTitle?: string;
 	/** The pattern is still the original's, so nothing here can be changed for this translation. */
 	inOriginal?: boolean;
+	/** Polylang does not translate media: the image's alt text, the media library's and the translation language's. */
+	alt?: { source: string; translation: string };
 }
 
 export interface DocumentCost {
@@ -68,6 +70,10 @@ export interface MediaData {
 	canCheckImages: boolean;
 	sourceLanguage: string;
 	targetLanguage: string;
+	/** The translation's language slug. */
+	targetSlug: string;
+	/** DeepL can translate an image's alt text into it. */
+	canTranslateAlts: boolean;
 	editUrl: string;
 	forms: Array< { id: number; title: string } >;
 	documentCost: DocumentCost | null;
