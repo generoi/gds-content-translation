@@ -121,6 +121,10 @@ class HyphenationTest extends RestTestCase
 
     public function test_a_used_suggestion_keeps_the_soft_hyphens_and_gets_them_in_new_words(): void
     {
+        if (! class_exists(\PLL_Translation_Walker_Factory::class)) {
+            $this->markTestSkipped('Polylang Pro is not available.');
+        }
+
         $ids = $this->createTranslatedPost(['post_title' => 'Page', 'post_excerpt' => '']);
         wp_update_post(['ID' => $ids['en'], 'post_content' => '<!-- wp:paragraph --><p>Read about the deck boards</p><!-- /wp:paragraph -->', 'post_excerpt' => '']);
         wp_update_post(['ID' => $ids['fi'], 'post_content' => '<!-- wp:paragraph --><p>Lue terassi'.self::shy.'laudoista</p><!-- /wp:paragraph -->', 'post_excerpt' => '']);
