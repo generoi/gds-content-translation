@@ -2,6 +2,7 @@
 
 namespace GeneroWP\ContentTranslation\Tests\Integration;
 
+use GeneroWP\ContentTranslation\DeeplApi;
 use GeneroWP\ContentTranslation\DocumentTranslation;
 use GeneroWP\ContentTranslation\FormTranslation;
 use GeneroWP\ContentTranslation\MediaCheck;
@@ -161,6 +162,10 @@ class MediaActionsTest extends RestTestCase
 
     public function test_an_svgs_labels_are_translated_into_a_copy_shared_by_translations(): void
     {
+        if (! DeeplApi::isAvailable()) {
+            $this->markTestSkipped('Polylang Pro is not available.');
+        }
+
         $svg = $this->attachment('deck.svg', 'image/svg+xml', '<svg xmlns="http://www.w3.org/2000/svg"><title>Deck</title><text x="1">Deck board 28 × 120</text><text><tspan>Two</tspan><tspan>lines</tspan></text></svg>');
         update_post_meta($svg, '_wp_attachment_image_alt', 'A deck');
         $content = sprintf('<!-- wp:image {"id":%d} --><figure class="wp-block-image"><img src="%s" class="wp-image-%d"/></figure><!-- /wp:image -->', $svg, wp_get_attachment_url($svg), $svg);
@@ -202,6 +207,10 @@ class MediaActionsTest extends RestTestCase
 
     public function test_a_document_is_drafted_by_deepl_only_when_the_setting_allows_it(): void
     {
+        if (! DeeplApi::isAvailable()) {
+            $this->markTestSkipped('Polylang Pro is not available.');
+        }
+
         $pdf = $this->attachment('opas.pdf', 'application/pdf', '%PDF original');
         $ids = $this->translated($this->fileBlock($pdf));
         $key = 'file:'.MediaCheckTestPath::of($pdf);
