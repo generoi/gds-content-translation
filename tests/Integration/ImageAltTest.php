@@ -2,6 +2,7 @@
 
 namespace GeneroWP\ContentTranslation\Tests\Integration;
 
+use GeneroWP\ContentTranslation\DeeplApi;
 use GeneroWP\ContentTranslation\DeeplGlossary;
 use GeneroWP\ContentTranslation\ImageAlt;
 use GeneroWP\ContentTranslation\MediaActions;
@@ -109,6 +110,10 @@ class ImageAltTest extends RestTestCase
 
     public function test_deepl_translates_the_missing_alt_texts_with_the_glossary(): void
     {
+        if (! DeeplApi::isAvailable()) {
+            $this->markTestSkipped('Polylang Pro is not available.');
+        }
+
         update_option(DeeplGlossary::optionKey, ['glossaryId' => 'g-1', 'dictionaries' => [['sourceLang' => 'EN', 'targetLang' => 'FI', 'entries' => 3]]]);
         $done = (int) self::factory()->attachment->create_object(['file' => 'beam.jpg', 'post_mime_type' => 'image/jpeg']);
         update_post_meta($done, '_wp_attachment_image_alt', 'A beam');

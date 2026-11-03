@@ -83,7 +83,7 @@ class PageScanTest extends RestTestCase
             ]));
         }
 
-        if ($this->redirectTo !== '' && str_contains($url, 'example.org')) {
+        if ($this->redirectTo !== '' && str_contains($url, (string) wp_parse_url(home_url(), PHP_URL_HOST))) {
             $this->pageRequests[] = ['url' => $url, 'args' => $args];
 
             return ['headers' => ['location' => $this->redirectTo], 'body' => '', 'response' => ['code' => 301, 'message' => ''], 'cookies' => [], 'filename' => null];
@@ -95,7 +95,7 @@ class PageScanTest extends RestTestCase
             return $response($this->html);
         }
 
-        if (str_contains($url, 'example.org')) {
+        if (str_contains($url, (string) wp_parse_url(home_url(), PHP_URL_HOST))) {
             $this->pageRequests[] = ['url' => $url, 'args' => $args];
 
             return $response($this->pageCode === 200 ? $this->html : '', $this->pageCode);
