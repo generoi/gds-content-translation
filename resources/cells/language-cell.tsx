@@ -26,6 +26,7 @@ import { celebrate } from '../ui/celebration';
 import { dismissNotice, notifyError, notifySuccess } from '../ui/notify';
 import { cellKey, useScreen } from '../list/screen-context';
 import { AuditBadge } from './audit-indicator';
+import { MediaBadge } from '../media/media-badge';
 import { FollowupMenu } from '../ui/followup';
 
 const MISSING: Cell = { state: 'missing', postId: 0 };
@@ -231,6 +232,7 @@ function TranslatedCell( { item, slug, cell, about }: CellProps ) {
 				<span className="gds-ct__status">{ status }</span>
 			) }
 			<AuditBadge audit={ audit } about={ about } />
+			<MediaBadge postId={ cell.postId } count={ cell.media } about={ about } onChange={ () => screen.refresh( true ) } />
 			{ !! cell.openNotes && cell.editUrl && (
 				<a className="gds-ct__notes" href={ cell.editUrl } target="_blank" rel="noopener noreferrer" title={ __( 'Open block editor notes', 'gds-content-translation' ) }>
 					<span className="dashicons dashicons-admin-comments" aria-hidden="true" />

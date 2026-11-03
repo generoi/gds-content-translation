@@ -11,6 +11,7 @@ use GeneroWP\ContentTranslation\Actions\TrashTranslation;
 use GeneroWP\ContentTranslation\Admin;
 use GeneroWP\ContentTranslation\AuditReview;
 use GeneroWP\ContentTranslation\BulkTranslation;
+use GeneroWP\ContentTranslation\MediaCheck;
 use GeneroWP\ContentTranslation\StatusList;
 use GeneroWP\ContentTranslation\TranslationActions;
 use GeneroWP\ContentTranslation\TranslationAudit;
@@ -34,6 +35,8 @@ if (! defined('ABSPATH')) {
  * - GET  /reviews/{id}: the AI review page's table of remarks.
  * - POST /reviews/{id}/remarks {operation, remarks, text}: use suggestions,
  *   save an edit, mark remarks fixed or not an issue, or reopen them.
+ * - GET  /media/{id}: the files, images and forms of a translation still in
+ *   the original's language; POST {keys, ok} marks some fine as they are.
  *
  * Every route needs the capability of the screen; each action also checks
  * the posts it changes.
@@ -103,6 +106,23 @@ final class StatusController
                 'operation' => ['type' => 'string', 'required' => true, 'enum' => ['use', 'edit', 'fixed', 'dismiss', 'reopen']],
                 'remarks' => ['type' => 'array', 'required' => true, 'items' => ['type' => 'integer'], 'minItems' => 1, 'maxItems' => self::maxIds],
                 'text' => ['type' => 'string', 'default' => ''],
+            ],
+        ]);
+
+        register_rest_route(self::namespace, '/media/(?P<id>\\d+)', [
+            [
+                'methods' => 'GET',
+                'callback' => [$this, 'media'],
+                'permission_callback' => $canEditPost,
+            ],
+            [
+                'methods' => 'POST',
+                'callback' => [$this, 'changeMedia'],
+                'permission_callback' => $canEditPost,
+                'args' => [
+                    'keys' => ['type' => 'array', 'required' => true, 'items' => ['type' => 'string'], 'minItems' => 1, 'maxItems' => self::maxIds],
+                    'ok' => ['type' => 'boolean', 'required' => true],
+                ],
             ],
         ]);
 
@@ -279,6 +299,28 @@ final class StatusController
         }
 
         return array_merge(['title' => $title], $data, ['id' => $sourceId, 'ok' => true]);
+    }
+
+    public function media(WP_REST_Request $request): WP_REST_Response|WP_Error
+    {
+        $postId = (int) $request['id'];
+
+        if (MediaCheck::get($postId) === null) {
+            return new WP_Error('gds_ct_not_translation', __('This is not a translation.', 'gds-content-translation'), ['status' => 404]);
+        }
+
+        return rest_ensure_response(MediaCheck::data($postId));
+    }
+
+    public function changeMedia(WP_REST_Request $request): WP_REST_Response|WP_Error
+    {
+        $postId = (int) $request['id'];
+
+        if (MediaCheck::setOk($postId, array_map('strval', (array) $request['keys']), (bool) $request['ok']) === null) {
+            return new WP_Error('gds_ct_not_translation', __('This is not a translation.', 'gds-content-translation'), ['status' => 404]);
+        }
+
+        return rest_ensure_response(MediaCheck::data($postId));
     }
 
     /**

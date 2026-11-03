@@ -151,6 +151,27 @@ Polylang → **Translation glossary** keeps the terms with the translation they 
 
 REST, under `gds-content-translation/v1`: `GET|POST /glossary`, `POST /glossary/{id}`, `POST /glossary/bulk`, `POST /glossary/import`, `GET|POST /glossary/sync`. The DeepL key is Polylang Pro's (`gds_content_translation_deepl_api_key` filters it).
 
+### Files, images and forms still in the original language
+
+Machine translation translates the page's text. What the page shows besides its text stays the original's: the PDF behind *Download*, the labels in an illustration, the form, the video. The translation then reads as finished. Each translation is checked for those, when it or its original is saved, and in the background over the whole site after an update (WP-Cron, 25 translations a run; the status screen says *Checking files and images: 120 of 340* meanwhile).
+
+What is found, in the content's blocks and HTML and the featured image:
+
+- **Files** from the media library or the uploads folder: PDF, Word, Excel, PowerPoint, OpenDocument, CSV, ZIP and the like.
+- **SVG images with text**: their `<text>`, `<title>` and `<desc>`, shown as found. Text without letters (*28 × 120*) is no text to translate.
+- **Images with words in them**: Claude looks at each image once (its *large* size, from the AI review's key and model) and lists the words a reader would need in their own language, not logos, product names or codes. The answer is kept on the image until its file changes; a failed check is tried again a day later. Without an Anthropic key images are not checked.
+- **Gravity Forms forms** (block or shortcode): shown as written in the form.
+- **Embeds** (YouTube, Vimeo…).
+- **Links to other sites** that look like the original's language: its country domain (`.fi`, not for English) or a `/fi/`, `?lang=fi` address, unless the address is for the translation's language (`/sv/`).
+
+Only what the original shows too counts: a translation that links its own PDF, shows another image or another form has handled it. Files are compared by file, not by media library item, so Polylang's media translation (one item per language, one file) is handled too. Media blocks are found by their `id`, `mediaId`, `ids` and `…ImageId`/`…MediaId` attributes; `gds_content_translation_media_items` filters what is found for a post.
+
+- **Status screen**: the cell shows *2 in Finnish*, opening the list in a dialog. *Files still in Finnish* is a count per language above the table and a filter.
+- **AI review page**: the list is above the remarks, open while something is.
+- Each item says what it is and what to do, links to the file, form or address, and is marked **Fine as it is** (a PDF that only exists in Finnish) or **Count again**.
+
+REST, under `gds-content-translation/v1`: `GET /media/{id}`, `POST /media/{id}` `{keys, ok}`.
+
 ### Polylang block integration
 
 The plugin registers Polylang Pro hooks and exposes **project-specific rules via WordPress filters**. Themes (or site-specific mu-plugins) declare which custom block attributes are translatable strings, which hold post/attachment IDs, and which hold internal URLs.
@@ -360,6 +381,10 @@ wp-env run, so a `composer update` on a newer PHP cannot pick dev packages they
 cannot install. It does not change the plugin's own PHP requirement.
 
 ## Changelog
+
+### 1.5.0
+
+- **Files, images and forms still in the original language**: each translation is checked for the PDFs, SVG labels, images with words in them (Claude looks), Gravity Forms forms, embeds and links to other sites it still shares with its original. The status screen counts and filters them (*2 in Finnish*), the AI review page lists them, and each can be marked fine as it is. The whole site is checked in the background after the update.
 
 ### 1.4.1
 

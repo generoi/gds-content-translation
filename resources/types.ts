@@ -31,6 +31,8 @@ export interface Cell {
 	openNotes?: number;
 	canDelete?: boolean;
 	audit?: Audit | null;
+	/** Files, images and forms still in the original's language (MediaCheck). */
+	media?: number;
 	job?: CellJob | null;
 }
 
@@ -62,6 +64,9 @@ export interface Summary {
 	notProofread: SummaryItem[];
 	aiErrors: SummaryItem[];
 	reviewRunning: SummaryItem[];
+	media: SummaryItem[];
+	/** The site-wide check of files and images: translations checked of all, images queued for Claude. */
+	mediaCheck: { checked: number; total: number; images: number };
 }
 
 export interface RowsResponse {
@@ -103,4 +108,4 @@ export interface Job {
 }
 
 /** What a cell is filtered by; the server's StatusList::filterKinds. */
-export type FilterKind = 'missing' | 'unproofread' | 'errors' | 'running';
+export type FilterKind = 'missing' | 'unproofread' | 'errors' | 'running' | 'media';

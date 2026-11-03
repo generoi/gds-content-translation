@@ -1188,10 +1188,11 @@ final class TranslationAudit
     /**
      * One structured answer from Claude, with the review's model and key.
      *
+     * @param  string|list<array<string, mixed>>  $user  The question, or its content blocks (an image and a question).
      * @param  array<string, mixed>  $schema
      * @return array<string, mixed>|WP_Error
      */
-    public function ask(string $system, string $user, array $schema): array|WP_Error
+    public function ask(string $system, string|array $user, array $schema): array|WP_Error
     {
         $model = (string) apply_filters('gds_content_translation_audit_model', self::settings()['model']);
         $message = $this->request([

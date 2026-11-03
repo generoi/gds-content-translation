@@ -81,6 +81,11 @@ $chip: 22px;
 		color: $green;
 	}
 
+	&__summary-checking {
+		color: $subtle;
+		font-size: 12px;
+	}
+
 	&__summary-clear.components-button {
 		font-size: 13px;
 	}
@@ -351,6 +356,15 @@ $chip: 22px;
 			background: #f0f6fc;
 			color: #2c3338;
 			font-weight: 400;
+		}
+
+		// A button opening the list, looking like the other badges.
+		&--media {
+			border: 0;
+			background: #f0f6fc;
+			color: #0a4b78;
+			font-family: inherit;
+			cursor: pointer;
 		}
 	}
 
@@ -1431,5 +1445,136 @@ $chip: 22px;
 				right: 4px;
 			}
 		}
+	}
+}
+
+// Files, images and forms still in the original's language: a list in the
+// status screen's modal and on the AI review page.
+.gds-ct-media {
+	&__intro {
+		margin: 0 0 12px;
+		color: #50575e;
+
+		&::first-letter {
+			text-transform: uppercase;
+		}
+	}
+
+	&__list {
+		margin: 0;
+	}
+
+	&__item {
+		display: flex;
+		align-items: flex-start;
+		gap: 12px;
+		margin: 0;
+		padding: 12px 0;
+		border-top: 1px solid #f0f0f1;
+
+		&:first-child {
+			border-top: 0;
+		}
+
+		&.is-ok {
+			opacity: 0.65;
+		}
+	}
+
+	&__thumb {
+		flex: 0 0 48px;
+		width: 48px;
+		height: 48px;
+		border-radius: 2px;
+		object-fit: cover;
+		background: #f0f0f1;
+	}
+
+	&__body {
+		flex: 1;
+		min-width: 0;
+	}
+
+	&__title {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: baseline;
+		gap: 4px 8px;
+		margin: 0;
+		font-weight: 600;
+
+		a {
+			overflow-wrap: anywhere;
+		}
+	}
+
+	&__kind {
+		color: #50575e;
+		font-size: 11px;
+		font-weight: 400;
+		text-transform: uppercase;
+		letter-spacing: 0.02em;
+	}
+
+	&__hint {
+		margin: 2px 0 0;
+		color: #50575e;
+	}
+
+	&__texts {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 4px;
+		margin: 6px 0 0;
+
+		li {
+			margin: 0;
+			padding: 1px 6px;
+			border-radius: 2px;
+			background: #fcf9e8;
+			color: #3c434a;
+			font-size: 12px;
+		}
+	}
+
+	&__more {
+		background: none !important;
+		color: #50575e !important;
+	}
+
+	&__action {
+		flex-shrink: 0;
+	}
+
+	&__empty,
+	&__note {
+		margin: 8px 0 0;
+		color: #50575e;
+	}
+
+	@media (max-width: 600px) {
+		&__item {
+			flex-wrap: wrap;
+		}
+
+		&__action {
+			margin-left: 60px;
+		}
+	}
+}
+
+// On the AI review page: above the remarks, easy to see while there is
+// something open, out of the way once it is all handled.
+.gds-content-translation-review__media {
+	max-width: 60rem;
+	margin: 0 0 16px;
+	padding: 8px 12px;
+	border-left: 4px solid #dba617;
+	background: #fff;
+	box-shadow: 0 1px 1px rgba(0, 0, 0, 0.04);
+
+	> summary {
+		font-weight: 600;
+		cursor: pointer;
 	}
 }

@@ -1,12 +1,14 @@
 /**
  * The counts above the table on one line of a fixed height, so the table
  * never moves: per language, how many are still to translate, to proofread,
- * with open AI errors, being reviewed. Each count is a filter toggle. Only
+ * with open AI errors, being reviewed, with files still in the original's
+ * language. Each count is a filter toggle; a line says while the site-wide
+ * check of files and images runs. Only
  * what is not zero is shown; before the counts arrive, the line keeps its
  * place.
  */
 import { Button } from '@wordpress/components';
-import { __, sprintf } from '@wordpress/i18n';
+import { __, _n, sprintf } from '@wordpress/i18n';
 import { LANGUAGE_FIELD_PREFIX } from '../api';
 import type { View } from '../dataviews';
 import { languageCode } from '../settings';
@@ -37,16 +39,19 @@ export function SummaryBar( { summary, view, onChangeView }: { summary: Summary 
 				{ kind: 'unproofread', items: summary.notProofread },
 				{ kind: 'errors', items: summary.aiErrors },
 				{ kind: 'running', items: summary.reviewRunning },
+				{ kind: 'media', items: summary.media ?? [] },
 		  ] as Array< { kind: FilterKind; items: SummaryItem[] } > )
 				.map( ( group ) => ( { ...group, items: group.items.filter( ( item ) => item.count > 0 ) } ) )
 				.filter( ( group ) => group.items.length > 0 )
 		: [];
 
 	const narrowed = !! view.search || ( view.filters ?? [] ).length > 0;
+	const check = summary?.mediaCheck;
+	const checking = !! check && ( check.checked < check.total || check.images > 0 );
 
 	return (
 		<div className="gds-ct__summary" aria-busy={ ! summary }>
-			{ summary && ! groups.length && <span className="gds-ct__summary-done">{ __( 'Everything is translated and proofread.', 'gds-content-translation' ) }</span> }
+			{ summary && ! groups.length && ! checking && <span className="gds-ct__summary-done">{ __( 'Everything is translated and proofread.', 'gds-content-translation' ) }</span> }
 			{ groups.map( ( group ) => (
 				<span key={ group.kind } className={ `gds-ct__summary-group gds-ct__summary-group--${ group.kind }` } role="group" aria-label={ labels[ group.kind ] }>
 					<span className="gds-ct__summary-label" aria-hidden="true">
@@ -77,6 +82,22 @@ export function SummaryBar( { summary, view, onChangeView }: { summary: Summary 
 					) ) }
 				</span>
 			) ) }
+			{ checking && (
+				<span className="gds-ct__summary-checking" title={ __( 'Files, images and forms still in the original language are counted once every translation is checked.', 'gds-content-translation' ) }>
+					{ check.checked < check.total
+						? sprintf(
+								/* translators: 1: translations checked, 2: all translations */
+								__( 'Checking files and images: %1$d of %2$d', 'gds-content-translation' ),
+								check.checked,
+								check.total
+						  )
+						: sprintf(
+								/* translators: %d: number of images */
+								_n( 'Checking %d image for text', 'Checking %d images for text', check.images, 'gds-content-translation' ),
+								check.images
+						  ) }
+				</span>
+			) }
 			{ narrowed && (
 				<Button variant="link" className="gds-ct__summary-clear" onClick={ () => onChangeView( { ...view, page: 1, search: '', filters: [] } ) }>
 					{ __( 'Show all', 'gds-content-translation' ) }

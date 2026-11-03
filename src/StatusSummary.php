@@ -8,8 +8,9 @@ if (! defined('ABSPATH')) {
 
 /**
  * Counts for the summary above the status table: per language, how many
- * translations are missing, not proof read, have open AI review errors, or
- * are being reviewed. Each is a filter on the table. Pure: rows in, counts out.
+ * translations are missing, not proof read, have open AI review errors, are
+ * being reviewed, or show files, images or forms still in the original's
+ * language. Each is a filter on the table. Pure: rows in, counts out.
  */
 final class StatusSummary
 {
@@ -23,14 +24,15 @@ final class StatusSummary
      *     missing: list<array{name: string, slug: string, count: int}>,
      *     notProofread: list<array{name: string, slug: string, count: int}>,
      *     aiErrors: list<array{name: string, slug: string, count: int}>,
-     *     reviewRunning: list<array{name: string, slug: string, count: int}>
+     *     reviewRunning: list<array{name: string, slug: string, count: int}>,
+     *     media: list<array{name: string, slug: string, count: int}>
      * }
      */
     public static function build(array $rows, array $languages, string $postTypeLabel): array
     {
         $defaultLanguageName = '';
-        $lists = ['missing' => [], 'notProofread' => [], 'aiErrors' => [], 'reviewRunning' => []];
-        $kindToList = ['missing' => 'missing', 'unproofread' => 'notProofread', 'errors' => 'aiErrors', 'running' => 'reviewRunning'];
+        $lists = ['missing' => [], 'notProofread' => [], 'aiErrors' => [], 'reviewRunning' => [], 'media' => []];
+        $kindToList = ['missing' => 'missing', 'unproofread' => 'notProofread', 'errors' => 'aiErrors', 'running' => 'reviewRunning', 'media' => 'media'];
 
         foreach ($languages as $language) {
             if ($language['isDefault']) {
