@@ -410,6 +410,8 @@ final class AuditReview
 
         <?php self::renderMediaRoot($postId); ?>
 
+        <?php self::renderScanRoot($postId, $post); ?>
+
         <div class="gds-content-translation-review__more">
             <details class="gds-content-translation-review__about">
                 <summary><?php echo esc_html__('About this review', 'gds-content-translation'); ?></summary>
@@ -497,6 +499,29 @@ final class AuditReview
             class="gds-content-translation-review__media-root"
             data-post-id="<?php echo esc_attr((string) $postId); ?>"
             data-open="<?php echo esc_attr((string) $media['open']); ?>"
+            data-source="<?php echo esc_attr($default ? StatusList::languageName($default) : ''); ?>"
+        ></div>
+        <?php
+    }
+
+    /**
+     * Where the script shows the check of the page for text still in the
+     * original's language ({@see PageScan}, resources/scan): what the review
+     * cannot see, the theme's header and footer, menus, image alts.
+     */
+    private static function renderScanRoot(int $postId, \WP_Post $post): void
+    {
+        if (! is_post_type_viewable($post->post_type) || (! PageScan::isAvailable() && ! PageScan::get($postId))) {
+            return;
+        }
+
+        $default = PLL()->model->get_language((string) pll_default_language('slug'));
+
+        ?>
+        <div
+            id="gds-ct-scan-root"
+            class="gds-content-translation-review__scan-root"
+            data-post-id="<?php echo esc_attr((string) $postId); ?>"
             data-source="<?php echo esc_attr($default ? StatusList::languageName($default) : ''); ?>"
         ></div>
         <?php

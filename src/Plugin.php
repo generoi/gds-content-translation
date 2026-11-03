@@ -40,6 +40,7 @@ class Plugin
         AuditReview::init();
         AuditNotes::init();
         MediaCheck::init();
+        PageScan::init();
         DocumentTranslation::init();
         FormTranslation::init();
         BulkTranslation::init();

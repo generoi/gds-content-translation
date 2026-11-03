@@ -1643,6 +1643,23 @@ $chip: 22px;
 	}
 }
 
+// The check of a page for text in the original's language: the findings
+// by where they are on the page, as the files list shows its items.
+.gds-ct-scan {
+	&__region + &__region {
+		margin-top: 12px;
+	}
+
+	&__heading {
+		margin: 12px 0 0;
+		font-size: 13px;
+	}
+
+	&__item .gds-ct-media__title > span:last-child {
+		overflow-wrap: anywhere;
+	}
+}
+
 // Polylang → Form translations.
 .gds-ct-forms {
 	&__intro {
