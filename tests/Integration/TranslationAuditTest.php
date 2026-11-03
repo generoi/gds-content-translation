@@ -174,7 +174,8 @@ class TranslationAuditTest extends AdminActionTestCase
             'remarks' => [
                 ['segment' => 3, 'severity' => 'error', 'category' => 'grammar', 'issue' => 'Missing umlauts.', 'suggestion' => 'Lue lisää'],
                 ['segment' => 2, 'severity' => 'suggestion', 'category' => 'fluency', 'issue' => 'No change needed.', 'suggestion' => 'Lue lisää'],
-                ['segment' => 9, 'severity' => 'error', 'category' => 'meaning', 'issue' => 'No such segment.', 'suggestion' => ''],
+                ['segment' => 9, 'severity' => 'error', 'category' => 'meaning', 'issue' => 'No such segment.', 'suggestion' => 'Jotain'],
+                ['segment' => 1, 'severity' => 'error', 'category' => 'untranslated', 'issue' => 'Kept on purpose, so this is not an error.', 'suggestion' => ''],
             ],
         ]);
 
@@ -198,7 +199,8 @@ class TranslationAuditTest extends AdminActionTestCase
 
         $this->assertSame('done', $review['status']);
         $this->assertSame(md5(get_post($ids['fi'])->post_content), $review['contentHash']);
-        // The "no change" remark and the one pointing nowhere are dropped.
+        // The "no change" remark, the one without a suggestion and the one
+        // pointing nowhere are dropped: every remark left is one click.
         $this->assertSame([['id' => 1, 'segment' => 3, 'severity' => 'error', 'category' => 'grammar', 'issue' => 'Missing umlauts.', 'suggestion' => 'Lue lisää', 'state' => 'open']], $review['remarks']);
     }
 
@@ -285,7 +287,7 @@ class TranslationAuditTest extends AdminActionTestCase
      * @return array<string, int>
      */
     /**
-     * Two remarks with suggestions, one without: what a follow-up has to apply.
+     * Two remarks with suggestions, one without (dropped): what a follow-up has to apply.
      *
      * @return array<string, mixed>
      */
@@ -306,7 +308,7 @@ class TranslationAuditTest extends AdminActionTestCase
         TranslationAudit::queue($ids['fi'], 'manual');
         do_action('gds_content_translation_run_audit', $ids['fi']);
 
-        $this->assertSame(['open', 'open', 'open'], array_column(TranslationAudit::get($ids['fi'])['remarks'], 'state'));
+        $this->assertSame(['open', 'open'], array_column(TranslationAudit::get($ids['fi'])['remarks'], 'state'));
         $this->assertStringContainsString('Lue lisaa', get_post($ids['fi'])->post_content);
     }
 
@@ -327,11 +329,10 @@ class TranslationAuditTest extends AdminActionTestCase
         $this->assertSame('done', $review['status']);
         $this->assertSame(2, $review['autoApplied']);
         $this->assertSame(0, $review['autoSkipped']);
-        // The remark without a suggestion stays for an editor.
         $bySegment = array_column($review['remarks'], null, 'segment');
         ksort($bySegment);
-        $this->assertSame([1 => 'resolved', 2 => 'open', 3 => 'resolved'], array_map(static fn (array $remark) => $remark['state'], $bySegment));
-        $this->assertSame([1 => 'auto', 2 => '', 3 => 'auto'], array_map(static fn (array $remark) => $remark['resolution'] ?? '', $bySegment));
+        $this->assertSame([1 => 'resolved', 3 => 'resolved'], array_map(static fn (array $remark) => $remark['state'], $bySegment));
+        $this->assertSame([1 => 'auto', 3 => 'auto'], array_map(static fn (array $remark) => $remark['resolution'] ?? '', $bySegment));
         // Still counts as reviewed: the content hash follows the applied text.
         $this->assertSame(TranslationAudit::contentHash($ids['fi']), $review['contentHash']);
         $this->assertCount($revisionsBefore, wp_get_post_revisions($ids['fi']));
@@ -555,7 +556,7 @@ class TranslationAuditTest extends AdminActionTestCase
         wp_update_post(['ID' => $ids['en'], 'post_content' => $this->blocks(...$texts)]);
         wp_update_post(['ID' => $ids['fi'], 'post_content' => $this->blocks(...array_map(static fn (string $text): string => "Teksti {$text}", $texts))]);
         $this->claudeResponse = $this->claudeAnswers(['summary' => 'Part.', 'remarks' => [
-            ['segment' => 61, 'severity' => 'error', 'category' => 'other', 'issue' => 'Last one.', 'suggestion' => ''],
+            ['segment' => 61, 'severity' => 'error', 'category' => 'other', 'issue' => 'Last one.', 'suggestion' => 'Teksti 61.'],
         ]]);
 
         $review = (new TranslationAudit)->run($ids['fi']);
@@ -569,6 +570,23 @@ class TranslationAuditTest extends AdminActionTestCase
         $this->assertSame(['input' => 200, 'output' => 40], $review['usage']);
         // The same remark from both calls (the fake answers alike) is kept per call.
         $this->assertSame([61, 61], array_column($review['remarks'], 'segment'));
+    }
+
+    public function test_a_nested_block_placeholder_is_kept_and_shown_as_a_marker(): void
+    {
+        $ids = $this->translation();
+        $placeholder = TranslationAudit::blockPlaceholder;
+        $this->claudeResponse = $this->claudeAnswers(['summary' => 'One.', 'remarks' => [
+            ['segment' => 3, 'severity' => 'error', 'category' => 'grammar', 'issue' => 'Lost the block.', 'suggestion' => "Lue lisää {$placeholder}"],
+        ]]);
+
+        // A suggestion that drops or adds a nested block is not offered.
+        $this->assertSame([], (new TranslationAudit)->run($ids['fi'])['remarks']);
+
+        $this->assertSame(
+            'Valitse <span class="gds-ct-review__nested">[nested block]</span> pilarit',
+            TranslationAudit::displayText('Valitse '.wp_kses_post($placeholder).' pilarit')
+        );
     }
 
     public function test_the_suggestion_shows_what_it_changes(): void

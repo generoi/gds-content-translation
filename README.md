@@ -361,6 +361,11 @@ cannot install. It does not change the plugin's own PHP requirement.
 
 ## Changelog
 
+### 1.4.1
+
+- **Every AI remark is one click**: a remark has to come with a suggestion. Remarks without one, which were the model concluding there is nothing to change ("not an error", "no change needed"), are no longer shown, and the review is told to leave them out.
+- **Nested blocks in the review**: Polylang's internal "Polylang placeholder do not modify" shows as *[nested block]*. A suggestion that would drop a nested block is not offered, and Edit… keeps them (it lost the placeholder's `translate` attribute before, which deleted the nested blocks).
+
 ### 1.4.0
 
 - **Translation glossary** (Polylang → Translation glossary): terms with their required translation per language, imported and exported as DeepL's CSV and edited in the admin.

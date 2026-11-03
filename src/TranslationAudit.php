@@ -58,6 +58,15 @@ final class TranslationAudit
     /** One-time token that lets the background request run a queued review. */
     private const tokenMetaKey = '_gds_content_translation_audit_token';
 
+    /**
+     * Polylang Pro's stand-in for a nested block inside a text
+     * (PLL_Translation_Walker_Blocks::BLOCK_PLACEHOLDER), and the same after
+     * wp_kses_post(), which drops its `translate` attribute.
+     */
+    public const blockPlaceholder = '<pre translate="no">Polylang placeholder do not modify</pre>';
+
+    private const blockPlaceholderKsesed = '<pre>Polylang placeholder do not modify</pre>';
+
     private const ajaxAction = 'gds_ct_run_audit';
 
     private const cronHook = 'gds_content_translation_run_audit';
@@ -736,6 +745,14 @@ final class TranslationAudit
 
         $segment = $review['segments'][$segmentIndex];
 
+        // wp_kses_post() drops the `translate` attribute of a nested block's placeholder,
+        // and a text without all of them would delete those blocks.
+        $text = str_replace(self::blockPlaceholderKsesed, self::blockPlaceholder, $text);
+
+        if (substr_count($text, self::blockPlaceholder) !== substr_count((string) $segment['translation'], self::blockPlaceholder)) {
+            return new WP_Error('gds_ct_audit_nested', __('Keep every “Polylang placeholder do not modify” line in the text: each stands for a nested block.', 'gds-content-translation'));
+        }
+
         // A review stored before texts kept their place: find it the way the
         // review page pairs the texts now, if it still says the same.
         if (empty($segment['acf']) && ! array_key_exists('index', $segment)) {
@@ -1202,6 +1219,19 @@ final class TranslationAudit
         return is_array($result) ? $result : new WP_Error('gds_ct_audit_unreadable', 'Claude returned an answer that could not be read.');
     }
 
+    /**
+     * A text for the review page, its nested blocks' placeholders shown as
+     * a marker instead of Polylang's internal wording.
+     */
+    public static function displayText(string $html): string
+    {
+        return str_replace(
+            [self::blockPlaceholder, self::blockPlaceholderKsesed],
+            sprintf('<span class="gds-ct-review__nested">%s</span>', esc_html__('[nested block]', 'gds-content-translation')),
+            $html
+        );
+    }
+
     private function systemPrompt(): string
     {
         return <<<'PROMPT'
@@ -1220,13 +1250,14 @@ Compare each translation with its original and report the problems a careful pro
 
 Rules for remarks:
 - One problem per remark. If a segment has two separate problems, make two remarks.
-- Only report something that needs to change. If a segment is acceptable, make no remark about it; never write a remark that says no change is needed.
+- Only report something that needs to change. If a segment is acceptable, make no remark about it. Never write a remark that says no change is needed, that the translation is acceptable, or that something is not an error: when you conclude there is no problem, leave the remark out entirely. This includes text the editor's instructions say stays as it is.
 - Do not report personal style preferences or wording that is already correct and natural. A page with a good translation should get few or no remarks.
 - Leave URLs, link targets and HTML attributes alone; links are handled separately.
+- `<pre translate="no">Polylang placeholder do not modify</pre>` stands for a nested block. It is not text: never report it, and keep it exactly where it is in every suggestion.
 - Make sure the explanation is factually correct, for example about grammatical gender.
 - Keep remarks consistent with each other: do not suggest a term in one remark that another remark advises against.
 
-For every remark, give the segment number, a short explanation of the problem, and the full corrected translation of that segment as the suggestion, keeping every HTML tag and attribute exactly as in the current translation. Leave the suggestion empty only when no single corrected segment can be given.
+For every remark, give the segment number, a short explanation of the problem, and the full corrected translation of that segment as the suggestion, keeping every HTML tag and attribute exactly as in the current translation. Every remark must have a suggestion that differs from the current translation, so the editor can fix it with one click. When you cannot give one, leave the remark out.
 
 The user message can include the site's glossary: terms of this page with the translation they must have. A glossary term translated differently is a terminology problem. Inflected and compound forms of the glossary's translation are correct, as the grammar of the sentence needs them. Suggestions must use the glossary's translations.
 
@@ -1336,8 +1367,17 @@ PROMPT;
                 continue;
             }
 
-            // A "suggestion" identical to the current translation changes nothing.
-            if ($suggestion !== '' && $suggestion === trim($segments[$segment - 1]['translation'])) {
+            $translation = $segments[$segment - 1]['translation'];
+
+            // Every remark is fixed with one click: one without a suggestion,
+            // or with one identical to the current translation, is a remark
+            // that found nothing to change ("acceptable", "not an error").
+            if ($suggestion === '' || $suggestion === trim($translation)) {
+                continue;
+            }
+
+            // Using a suggestion that lost a nested block would delete it.
+            if (substr_count($suggestion, self::blockPlaceholder) !== substr_count($translation, self::blockPlaceholder)) {
                 continue;
             }
 

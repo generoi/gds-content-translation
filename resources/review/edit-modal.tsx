@@ -15,7 +15,7 @@ interface Props {
 }
 
 export function EditModal( { row, sourceLanguage, onSave, onClose }: Props ) {
-	const [ text, setText ] = useState( row.suggestion !== '' ? row.suggestion : row.translation );
+	const [ text, setText ] = useState( row.suggestion !== '' ? row.suggestion : row.text );
 	const [ isBusy, setIsBusy ] = useState( false );
 
 	const save = () => {

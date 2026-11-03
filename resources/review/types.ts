@@ -18,6 +18,8 @@ export interface RemarkRow {
 	/** HTML, sanitised by the server. */
 	source: string;
 	translation: string;
+	/** The translation as stored, for Edit…: not sanitised, never rendered as HTML. */
+	text: string;
 	/** The text was changed in the editor after the review. */
 	changed: boolean;
 	severity: Severity | '';
