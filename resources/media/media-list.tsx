@@ -12,7 +12,7 @@
  * shows the list in a modal, the AI review page above its remarks.
  */
 import { Button, ExternalLink, Flex, Modal, SelectControl, Spinner, TextControl, __experimentalConfirmDialog as ConfirmDialog } from '@wordpress/components';
-import { useEffect, useState } from '@wordpress/element';
+import { useEffect, useRef, useState } from '@wordpress/element';
 import { __, _n, sprintf } from '@wordpress/i18n';
 import { errorMessage } from '../api';
 import { notifyError, notifySuccess } from '../ui/notify';
@@ -226,11 +226,13 @@ interface ItemProps {
 	item: MediaItem;
 	data: MediaData;
 	busy: boolean;
+	/** Another item's action is running: one at a time, as each rewrites the translation. */
+	locked: boolean;
 	onMark: ( ok: boolean ) => void;
 	onAction: ( action: string, args?: { value?: string | number; labels?: Record< string, string > }, done?: string ) => Promise< boolean >;
 }
 
-function Item( { item, data, busy, onMark, onAction }: ItemProps ) {
+function Item( { item, data, busy, locked, onMark, onAction }: ItemProps ) {
 	const [ editing, setEditing ] = useState< '' | 'url' | 'form' | 'labels' | 'document' >( '' );
 	const ok = item.state === 'ok';
 	const translated = item.state === 'translated';
@@ -342,49 +344,49 @@ function Item( { item, data, busy, onMark, onAction }: ItemProps ) {
 
 				<div className="gds-ct-media__actions">
 					{ has( 'svg-translate' ) && ! ok && (
-						<Button variant="primary" size="compact" isBusy={ busy } disabled={ busy } accessibleWhenDisabled onClick={ () => void onAction( 'svg-translate', {}, __( 'The labels are translated. The translation shows the copy of the illustration.', 'gds-content-translation' ) ) }>
+						<Button variant="primary" size="compact" isBusy={ busy } disabled={ busy || locked } accessibleWhenDisabled onClick={ () => void onAction( 'svg-translate', {}, __( 'The labels are translated. The translation shows the copy of the illustration.', 'gds-content-translation' ) ) }>
 							{ __( 'Translate the labels', 'gds-content-translation' ) }
 						</Button>
 					) }
 					{ has( 'svg-labels' ) && (
 						<>
 							{ item.current === false && (
-								<Button variant="primary" size="compact" isBusy={ busy } disabled={ busy } accessibleWhenDisabled onClick={ () => void onAction( 'svg-labels', { labels: {} }, __( 'The copy is updated.', 'gds-content-translation' ) ) }>
+								<Button variant="primary" size="compact" isBusy={ busy } disabled={ busy || locked } accessibleWhenDisabled onClick={ () => void onAction( 'svg-labels', { labels: {} }, __( 'The copy is updated.', 'gds-content-translation' ) ) }>
 									{ __( 'Update the copy', 'gds-content-translation' ) }
 								</Button>
 							) }
-							<Button variant="secondary" size="compact" disabled={ busy } accessibleWhenDisabled onClick={ () => setEditing( 'labels' ) }>
+							<Button variant="secondary" size="compact" disabled={ busy || locked } accessibleWhenDisabled onClick={ () => setEditing( 'labels' ) }>
 								{ __( 'Edit the labels…', 'gds-content-translation' ) }
 							</Button>
 						</>
 					) }
 					{ has( 'document-translate' ) && ! ok && (
-						<Button variant="secondary" size="compact" disabled={ busy } accessibleWhenDisabled onClick={ () => setEditing( 'document' ) }>
+						<Button variant="secondary" size="compact" disabled={ busy || locked } accessibleWhenDisabled onClick={ () => setEditing( 'document' ) }>
 							{ __( 'Translate with DeepL…', 'gds-content-translation' ) }
 						</Button>
 					) }
 					{ has( 'document-use' ) && job?.status === 'ready' && (
-						<Button variant="primary" size="compact" isBusy={ busy } disabled={ busy } accessibleWhenDisabled onClick={ () => void onAction( 'document-use', {}, __( 'The translation now links the translated file.', 'gds-content-translation' ) ) }>
+						<Button variant="primary" size="compact" isBusy={ busy } disabled={ busy || locked } accessibleWhenDisabled onClick={ () => void onAction( 'document-use', {}, __( 'The translation now links the translated file.', 'gds-content-translation' ) ) }>
 							{ __( 'Use this file', 'gds-content-translation' ) }
 						</Button>
 					) }
 					{ has( 'document-discard' ) && job?.status !== 'translating' && (
-						<Button variant="tertiary" size="compact" disabled={ busy } accessibleWhenDisabled onClick={ () => void onAction( 'document-discard' ) }>
+						<Button variant="tertiary" size="compact" disabled={ busy || locked } accessibleWhenDisabled onClick={ () => void onAction( 'document-discard' ) }>
 							{ job?.status === 'failed' ? __( 'Dismiss', 'gds-content-translation' ) : __( 'Not now', 'gds-content-translation' ) }
 						</Button>
 					) }
 					{ has( 'replace' ) && ! ok && ! editing && (
-						<Button variant={ item.kind === 'image' || item.kind === 'document' ? 'secondary' : 'tertiary' } size="compact" disabled={ busy } accessibleWhenDisabled onClick={ replace }>
+						<Button variant={ item.kind === 'image' || item.kind === 'document' ? 'secondary' : 'tertiary' } size="compact" disabled={ busy || locked } accessibleWhenDisabled onClick={ replace }>
 							{ replaceLabel }
 						</Button>
 					) }
 					{ has( 'restore' ) && (
-						<Button variant="tertiary" size="compact" disabled={ busy } accessibleWhenDisabled onClick={ () => void onAction( 'restore', {}, __( 'The translation shows the original’s file again.', 'gds-content-translation' ) ) }>
+						<Button variant="tertiary" size="compact" disabled={ busy || locked } accessibleWhenDisabled onClick={ () => void onAction( 'restore', {}, __( 'The translation shows the original’s file again.', 'gds-content-translation' ) ) }>
 							{ __( 'Use the original again', 'gds-content-translation' ) }
 						</Button>
 					) }
 					{ ! translated && (
-						<Button variant="tertiary" size="compact" onClick={ () => onMark( ! ok ) } disabled={ busy } accessibleWhenDisabled>
+						<Button variant="tertiary" size="compact" onClick={ () => onMark( ! ok ) } disabled={ busy || locked } accessibleWhenDisabled>
 							{ ok ? __( 'Count again', 'gds-content-translation' ) : __( 'Fine as it is', 'gds-content-translation' ) }
 							<span className="screen-reader-text">{ `: ${ item.title }` }</span>
 						</Button>
@@ -448,19 +450,26 @@ export function MediaList( { postId, onChange }: Props ) {
 	// While DeepL translates a document, ask how far it is.
 	const translating = !! data?.items.some( ( item ) => item.job?.status === 'translating' );
 
+	// Bumped by each action, so a poll that started before one does not
+	// overwrite what it returned; and by a failed poll, to ask again.
+	const versionRef = useRef( 0 );
+	const [ retry, setRetry ] = useState( 0 );
+
 	useEffect( () => {
 		if ( ! translating ) {
 			return;
 		}
 
 		const timer = setTimeout( () => {
+			const version = versionRef.current;
+
 			fetchMedia( postId )
-				.then( setData )
-				.catch( () => undefined );
+				.then( ( next ) => version === versionRef.current && setData( next ) )
+				.catch( () => setRetry( ( count ) => count + 1 ) );
 		}, 10000 );
 
 		return () => clearTimeout( timer );
-	}, [ translating, data, postId ] );
+	}, [ translating, data, postId, retry ] );
 
 	if ( failed ) {
 		return <p className="gds-ct-media__empty">{ failed }</p>;
@@ -475,6 +484,7 @@ export function MediaList( { postId, onChange }: Props ) {
 	}
 
 	const changed = ( next: MediaData ) => {
+		versionRef.current++;
 		setData( next );
 		onChange?.( next );
 	};
@@ -518,7 +528,7 @@ export function MediaList( { postId, onChange }: Props ) {
 			{ sorted.length ? (
 				<ul className="gds-ct-media__list">
 					{ sorted.map( ( item ) => (
-						<Item key={ item.key } item={ item } data={ data } busy={ busy === item.key } onMark={ ( ok ) => mark( item, ok ) } onAction={ act( item ) } />
+						<Item key={ item.key } item={ item } data={ data } busy={ busy === item.key } locked={ busy !== '' && busy !== item.key } onMark={ ( ok ) => mark( item, ok ) } onAction={ act( item ) } />
 					) ) }
 				</ul>
 			) : (

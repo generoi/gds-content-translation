@@ -24,9 +24,22 @@ final class DeeplApi
     /** Euros per million characters on DeepL API Pro, for the estimate. */
     public const defaultPricePerMillion = 20.0;
 
+    private const textsPerRequest = 50;
+
     public static function isAvailable(): bool
     {
         return DeeplGlossary::apiKey() !== '' && class_exists(DeeplService::class);
+    }
+
+    /**
+     * Whether asking again later can work: no connection, too many
+     * requests, or DeepL's own trouble.
+     */
+    public static function isTemporary(WP_Error $error): bool
+    {
+        $code = (int) ($error->get_error_data()['code'] ?? 0);
+
+        return $error->get_error_code() === 'gds_ct_deepl_connection' || $code === 429 || $code >= 500;
     }
 
     public static function isFreePlan(): bool
@@ -112,6 +125,22 @@ final class DeeplApi
      */
     private static function requestTranslation(array $texts, PLL_Language $source, PLL_Language $target, bool $html): array|WP_Error
     {
+        // DeepL takes at most 50 texts a request (a form's long list of choices).
+        if (count($texts) > self::textsPerRequest) {
+            $translations = [];
+
+            foreach (array_chunk($texts, self::textsPerRequest) as $chunk) {
+                $translated = self::requestTranslation($chunk, $source, $target, $html);
+
+                if ($translated instanceof WP_Error) {
+                    return $translated;
+                }
+
+                $translations = array_merge($translations, $translated);
+            }
+
+            return $translations;
+        }
 
         $targetCode = self::targetCode($target);
         $sourceCode = self::sourceCode($source);
@@ -285,7 +314,7 @@ final class DeeplApi
                 __('DeepL refused the request (%1$d): %2$s', 'gds-content-translation'),
                 $code,
                 is_array($decoded) ? trim(($decoded['message'] ?? '').' '.($decoded['detail'] ?? '')) : ''
-            ));
+            ), ['code' => $code]);
         }
 
         if ($raw) {

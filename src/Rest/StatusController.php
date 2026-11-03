@@ -239,8 +239,15 @@ final class StatusController
     {
         $postId = (int) $request['id'];
 
-        if (! TranslationAudit::get($postId)) {
+        $review = TranslationAudit::get($postId);
+
+        if (! $review) {
             return new WP_Error('gds_ct_no_review', __('There is no AI review for this post.', 'gds-content-translation'), ['status' => 404]);
+        }
+
+        // A new review is on its way: these remarks are about to be replaced.
+        if (($review['status'] ?? '') !== 'done' || ! empty($review['applying'])) {
+            return new WP_Error('gds_ct_review_running', __('The AI review is running again. Reload the page when it is done.', 'gds-content-translation'), ['status' => 409]);
         }
 
         $results = [];
@@ -381,7 +388,16 @@ final class StatusController
 
     public function saveForm(WP_REST_Request $request): WP_REST_Response|WP_Error
     {
-        FormTranslation::save((int) $request['form'], (string) $request['lang'], array_map('strval', (array) $request['translations']));
+        // The form and language first: nothing is stored for one that is not there.
+        $rows = FormTranslation::rows((int) $request['form'], (string) $request['lang']);
+
+        if ($rows instanceof WP_Error) {
+            return $rows;
+        }
+
+        // Only the form's own texts.
+        $texts = array_column($rows['rows'], 'source');
+        FormTranslation::save((int) $request['form'], (string) $request['lang'], array_intersect_key(array_map('strval', (array) $request['translations']), array_flip($texts)));
 
         return $this->formRows($request);
     }

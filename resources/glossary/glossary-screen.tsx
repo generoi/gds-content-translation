@@ -153,6 +153,7 @@ export function GlossaryScreen() {
 
 	// Changes on their way to DeepL: the line follows until they are there.
 	const sync = terms.data?.sync ?? null;
+	const [ syncRetry, setSyncRetry ] = useState( 0 );
 
 	useEffect( () => {
 		if ( ! sync?.pending || ! sync.configured ) {
@@ -170,11 +171,12 @@ export function GlossaryScreen() {
 		const timer = setTimeout( () => {
 			fetchSync()
 				.then( setSync )
-				.catch( () => undefined );
+				// Asks again after a blip.
+				.catch( () => setSyncRetry( ( count ) => count + 1 ) );
 		}, SYNC_POLL );
 
 		return () => clearTimeout( timer );
-	}, [ sync, setSync ] );
+	}, [ sync, setSync, syncRetry ] );
 
 	// A failed reload keeps the terms on screen and says so in a snackbar.
 	useEffect( () => {

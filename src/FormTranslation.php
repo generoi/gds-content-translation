@@ -86,11 +86,69 @@ final class FormTranslation
 
         $translations = self::translations((int) $form['id'], $slug);
 
-        if ($translations === []) {
-            return $form;
+        if ($translations !== []) {
+            $form = self::walk($form, static fn (string $text): string => $translations[$text] ?? $text);
         }
 
-        return self::walk($form, static fn (string $text): string => $translations[$text] ?? $text);
+        // Where a confirmation sends the visitor: the page in their language.
+        foreach ((array) ($form['confirmations'] ?? []) as $id => $confirmation) {
+            if (! is_array($confirmation)) {
+                continue;
+            }
+
+            if (($confirmation['type'] ?? '') === 'page' && ! empty($confirmation['pageId'])) {
+                $form['confirmations'][$id]['pageId'] = (int) (pll_get_post((int) $confirmation['pageId'], $slug) ?: $confirmation['pageId']);
+            }
+
+            if (($confirmation['type'] ?? '') === 'redirect' && ! empty($confirmation['url']) && is_string($confirmation['url'])) {
+                $form['confirmations'][$id]['url'] = self::localUrl($confirmation['url'], $slug);
+            }
+
+            if (isset($confirmation['message']) && is_string($confirmation['message'])) {
+                $form['confirmations'][$id]['message'] = self::localLinks($form['confirmations'][$id]['message'], $slug);
+            }
+        }
+
+        return $form;
+    }
+
+    /**
+     * The links of a translated text to the site's pages and files, to their
+     * translations (a page's, or a file's translated copy) where there is one.
+     */
+    public static function localLinks(string $html, string $slug): string
+    {
+        return (string) preg_replace_callback('/\bhref=(["\'])(.*?)\1/i', static function (array $match) use ($slug): string {
+            $url = html_entity_decode($match[2], ENT_QUOTES, 'UTF-8');
+            $local = self::localUrl($url, $slug);
+
+            return $local === $url ? $match[0] : 'href='.$match[1].esc_url($local).$match[1];
+        }, $html);
+    }
+
+    private static function localUrl(string $url, string $slug): string
+    {
+        $home = untrailingslashit((string) get_option('home'));
+        $absolute = str_starts_with($url, '/') && ! str_starts_with($url, '//') ? $home.$url : $url;
+
+        if (strtolower((string) wp_parse_url($absolute, PHP_URL_HOST)) !== strtolower((string) wp_parse_url($home, PHP_URL_HOST))) {
+            return $url;
+        }
+
+        $attachmentId = attachment_url_to_postid((string) strtok($absolute, '?#'));
+
+        if ($attachmentId > 0) {
+            $copy = MediaCheck::copyOf($attachmentId, $slug);
+            // A DeepL draft only once someone has read and used it.
+            $unread = $copy > 0 && metadata_exists('post', $copy, DocumentTranslation::billedMetaKey) && ! get_post_meta($copy, DocumentTranslation::usedMetaKey, true);
+
+            return $copy > 0 && ! $unread ? (string) wp_get_attachment_url($copy) : $url;
+        }
+
+        $postId = url_to_postid($absolute);
+        $translation = $postId > 0 ? (int) pll_get_post($postId, $slug) : 0;
+
+        return $translation > 0 && $translation !== $postId && get_post_status($translation) === 'publish' ? (string) get_permalink($translation) : $url;
     }
 
     public static function addLanguageField(string $tag, $form): string
@@ -120,6 +178,11 @@ final class FormTranslation
             if (isset($notification[$key]) && is_string($notification[$key]) && isset($translations[$notification[$key]])) {
                 $notification[$key] = $translations[$notification[$key]];
             }
+        }
+
+        // The guide it sends, and the pages it links, in the visitor's language.
+        if (isset($notification['message']) && is_string($notification['message'])) {
+            $notification['message'] = self::localLinks($notification['message'], $slug);
         }
 
         return $notification;

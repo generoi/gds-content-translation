@@ -401,6 +401,34 @@ cannot install. It does not change the plugin's own PHP requirement.
 
 ## Changelog
 
+### 1.5.2
+
+- **The status screen no longer shows fixed remarks as errors** after an AI translation set to fix automatically: the review counts as running until its suggestions are in (and, with *check again*, until the second review), so the screen keeps asking.
+- **AI review fixes**:
+  - Automatic fixes are saved as the editor who asked. In the background, WordPress otherwise filtered the whole translation's HTML (an embed's iframe, an inline SVG).
+  - A second remark on the same text no longer undoes the first one's fix.
+  - Remark changes made at the same moment no longer overwrite each other.
+  - On a long page, a part's remarks are only about the texts it sent.
+  - Remarks can't be changed while a new review runs.
+- **Image and post IDs in blocks are kept** when their object has no language (media, when Polylang does not translate media). They were removed.
+- **Files, images and forms**:
+  - A link is replaced only where it is the whole address.
+  - A paid DeepL document is not sent twice, also from two translations at once.
+  - A short DeepL outage no longer fails a document job.
+  - Only the actions the list offers can be run.
+  - SVG `aria-label`s are translated too.
+  - DeepL gets at most 50 texts a request (long choice lists).
+  - Images are checked only when the AI review is on.
+- **Forms**:
+  - Page and redirect confirmations, and the links in messages and in the visitor's email, lead to the visitor's language: the translated page, and a translated file once someone has used it.
+  - Saving checks the form and language first.
+- **Screens**:
+  - Unsaved form translations are no longer lost when a remark is used, or when you leave the page.
+  - The files list stays open while its last item is fixed, and runs one action at a time.
+  - Polling goes on after a failed request.
+  - Bulk queue errors are shown.
+  - Notices on the review page show once.
+
 ### 1.5.1
 
 - **Files, images and forms in synced patterns**: the check looked only at a page's own content, so a form, SVG or file in a synced pattern the page shows was neither listed nor translated (the form on a home page in a pattern stayed in Finnish). They are now listed with the pattern they are in, and the actions and the automatic SVG and form translation change the translation's pattern. When the page still shows the original's pattern, the list says to translate the pattern first. Saving a pattern rechecks the pages that show it, and the whole site is checked again after the update.

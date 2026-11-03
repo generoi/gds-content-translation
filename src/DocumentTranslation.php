@@ -27,6 +27,11 @@ final class DocumentTranslation
     /** On a translation: file key => the DeepL job for it. */
     public const jobsMetaKey = '_gds_content_translation_document_jobs';
 
+    /** On a DeepL draft someone chose to use: other places may link it too. */
+    public const usedMetaKey = '_gds_content_translation_draft_used';
+
+    public const billedMetaKey = '_gds_content_translation_deepl_billed';
+
     private const pollHook = 'gds_content_translation_poll_document';
 
     /** Seconds between asking DeepL how far it is. */
@@ -135,7 +140,25 @@ final class DocumentTranslation
             return true;
         }
 
-        $upload = DeeplApi::uploadDocument($file, $default, $language);
+        // DeepL bills each upload: one per file and language, also when two
+        // translations ask at once, or a second asks while the first waits.
+        global $wpdb;
+
+        $running = 'gds_ct_document_'.$sourceId.'_'.$language->slug;
+
+        if (get_transient($running) || (int) $wpdb->get_var($wpdb->prepare('SELECT GET_LOCK(%s, 0)', $running)) !== 1) {
+            return new WP_Error('gds_ct_document_running', __('DeepL is already translating this file into this language. Its draft is used here too once it is ready.', 'gds-content-translation'));
+        }
+
+        try {
+            $upload = DeeplApi::uploadDocument($file, $default, $language);
+
+            if (! $upload instanceof WP_Error) {
+                set_transient($running, $postId, self::timeout);
+            }
+        } finally {
+            $wpdb->query($wpdb->prepare('SELECT RELEASE_LOCK(%s)', $running));
+        }
 
         if ($upload instanceof WP_Error) {
             return $upload;
@@ -160,9 +183,18 @@ final class DocumentTranslation
         }
 
         $status = DeeplApi::documentStatus((string) $job['id'], (string) $job['key']);
+        $inTime = time() - (int) $job['startedAt'] <= self::timeout;
+
+        // DeepL billed it already: a blip asks again, until the time is up.
+        if ($status instanceof WP_Error && $inTime && DeeplApi::isTemporary($status)) {
+            wp_schedule_single_event(time() + self::pollInterval * 3, self::pollHook, [$postId, $sourceId]);
+
+            return;
+        }
 
         if ($status instanceof WP_Error || $status['status'] === 'error') {
             self::saveJob($postId, $sourceId, array_merge($job, ['status' => 'failed', 'error' => $status instanceof WP_Error ? $status->get_error_message() : $status['error']]));
+            self::finished($postId, $sourceId);
 
             return;
         }
@@ -170,6 +202,7 @@ final class DocumentTranslation
         if ($status['status'] !== 'done') {
             if (time() - (int) $job['startedAt'] > self::timeout) {
                 self::saveJob($postId, $sourceId, array_merge($job, ['status' => 'failed', 'error' => __('DeepL did not finish the file in 30 minutes.', 'gds-content-translation')]));
+                self::finished($postId, $sourceId);
 
                 return;
             }
@@ -181,16 +214,33 @@ final class DocumentTranslation
         }
 
         $bytes = DeeplApi::documentResult((string) $job['id'], (string) $job['key']);
+
+        if ($bytes instanceof WP_Error && $inTime && DeeplApi::isTemporary($bytes)) {
+            wp_schedule_single_event(time() + self::pollInterval * 3, self::pollHook, [$postId, $sourceId]);
+
+            return;
+        }
         $attachmentId = $bytes instanceof WP_Error ? $bytes : self::saveDraft($postId, $sourceId, $bytes, $status['billedCharacters']);
 
         if ($attachmentId instanceof WP_Error) {
             self::saveJob($postId, $sourceId, array_merge($job, ['status' => 'failed', 'error' => $attachmentId->get_error_message()]));
+            self::finished($postId, $sourceId);
 
             return;
         }
 
         self::saveJob($postId, $sourceId, ['status' => 'ready', 'attachmentId' => $attachmentId, 'billed' => $status['billedCharacters'], 'error' => '', 'startedAt' => (int) $job['startedAt']]);
         delete_transient('gds_ct_deepl_usage');
+        self::finished($postId, $sourceId);
+    }
+
+    /**
+     * The file can be sent again (or its draft is there for the next translation).
+     */
+    private static function finished(int $postId, int $sourceId): void
+    {
+        $slug = (string) pll_get_post_language($postId);
+        delete_transient('gds_ct_document_'.$sourceId.'_'.$slug);
     }
 
     private static function saveDraft(int $postId, int $sourceId, string $bytes, int $billed): int|WP_Error
@@ -227,7 +277,7 @@ final class DocumentTranslation
 
         update_post_meta($attachmentId, MediaCheck::copyOfMetaKey, $sourceId);
         update_post_meta($attachmentId, MediaCheck::copyLanguageMetaKey, $language->slug);
-        update_post_meta($attachmentId, '_gds_content_translation_deepl_billed', $billed);
+        update_post_meta($attachmentId, self::billedMetaKey, $billed);
 
         if (! empty(PLL()->options['media_support'])) {
             pll_set_post_language($attachmentId, $language->slug);
@@ -252,6 +302,7 @@ final class DocumentTranslation
 
         if ($result === true) {
             self::saveJob($postId, $sourceId, null);
+            update_post_meta($draftId, self::usedMetaKey, time());
         }
 
         return $result;

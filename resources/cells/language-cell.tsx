@@ -233,7 +233,7 @@ function TranslatedCell( { item, slug, cell, about }: CellProps ) {
 				<span className="gds-ct__status">{ status }</span>
 			) }
 			<AuditBadge audit={ audit } about={ about } />
-			<MediaBadge postId={ cell.postId } count={ cell.media } about={ about } onChange={ () => screen.refresh( true ) } />
+			<MediaBadge count={ cell.media } about={ about } onOpen={ () => setMediaOpen( true ) } />
 			{ !! cell.openNotes && cell.editUrl && (
 				<a className="gds-ct__notes" href={ cell.editUrl } target="_blank" rel="noopener noreferrer" title={ __( 'Open block editor notes', 'gds-content-translation' ) }>
 					<span className="dashicons dashicons-admin-comments" aria-hidden="true" />
