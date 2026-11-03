@@ -57,13 +57,22 @@ final class SvgTranslation
                 continue;
             }
 
-            $translated = self::translateFor($postId, (int) $item['attachmentId']);
+            // In a pattern, the pattern shows the copy; not the original's pattern.
+            if (! empty($item['inOriginal'])) {
+                continue;
+            }
+
+            $translated = self::translateFor((int) ($item['in'] ?? 0) ?: $postId, (int) $item['attachmentId']);
 
             if ($translated instanceof WP_Error) {
                 error_log(sprintf('[gds-content-translation] Translating SVG %d for post %d failed: %s', $item['attachmentId'], $postId, $translated->get_error_message()));
             } else {
                 $count++;
             }
+        }
+
+        if ($count > 0) {
+            MediaCheck::check($postId);
         }
 
         return $count;

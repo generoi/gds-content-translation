@@ -401,6 +401,10 @@ cannot install. It does not change the plugin's own PHP requirement.
 
 ## Changelog
 
+### 1.5.1
+
+- **Files, images and forms in synced patterns**: the check looked only at a page's own content, so a form, SVG or file in a synced pattern the page shows was neither listed nor translated (the form on a home page in a pattern stayed in Finnish). They are now listed with the pattern they are in, and the actions and the automatic SVG and form translation change the translation's pattern. When the page still shows the original's pattern, the list says to translate the pattern first. Saving a pattern rechecks the pages that show it, and the whole site is checked again after the update.
+
 ### 1.5.0
 
 - **Files, images and forms still in the original language**: each translation is checked for the PDFs, SVG labels, images with words in them (Claude looks), Gravity Forms forms, embeds and links to other sites it still shares with its original. The status screen counts and filters them (*2 in Finnish*), the AI review page lists them, and each can be marked fine as it is. The whole site is checked in the background after the update.

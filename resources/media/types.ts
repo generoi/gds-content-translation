@@ -36,6 +36,11 @@ export interface MediaItem {
 	job?: DocumentJob;
 	/** A DeepL draft of this file in this language exists already, made for another translation. */
 	draftExists?: boolean;
+	/** In a synced pattern the page shows: its ID and title. Actions change the pattern. */
+	in?: number;
+	inTitle?: string;
+	/** The pattern is still the original's, so nothing here can be changed for this translation. */
+	inOriginal?: boolean;
 }
 
 export interface DocumentCost {
