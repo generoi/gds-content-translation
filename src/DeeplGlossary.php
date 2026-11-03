@@ -14,8 +14,10 @@ if (! defined('ABSPATH')) {
  * DeepL keeps one multilingual glossary (its v3 API) with a dictionary per
  * language pair. A changed glossary is sent again as a whole, within a
  * minute of the change and before the next AI translation: a new glossary
- * is created, then the old one deleted, so a translation running meanwhile
- * always has one.
+ * is created, and the old one deleted a quarter of an hour later, so a
+ * translation running meanwhile, which names the old one, still has it. A
+ * send that fails is tried again later, less often each time, not before
+ * every translation.
  *
  * Polylang Pro's DeepL client has no glossary setting and no filter for its
  * request, so the glossary's ID is added to its translate requests on their
@@ -28,17 +30,36 @@ final class DeeplGlossary
 
     private const cronHook = 'gds_content_translation_sync_glossary';
 
+    private const deleteHook = 'gds_content_translation_delete_glossary';
+
     /** Seconds after a change before it is sent, so an editing session sends once. */
     private const delay = 60;
+
+    /** Seconds an old glossary is kept for the translations that still name it. */
+    private const deleteAfter = 15 * MINUTE_IN_SECONDS;
+
+    /** Seconds before a failed send is tried again: doubled per failure, up to an hour. */
+    private const retryAfter = 5 * MINUTE_IN_SECONDS;
+
+    /**
+     * Language pairs ("EN-FI") DeepL found no dictionary for in the glossary
+     * during this request. Polylang Pro then tries again without a glossary,
+     * which must stay without one.
+     *
+     * @var array<string, true>
+     */
+    private static array $missingPairs = [];
 
     public static function init(): void
     {
         add_filter('http_request_args', [self::class, 'addToRequest'], 10, 2);
+        add_filter('http_response', [self::class, 'noteMissingDictionary'], 10, 3);
         add_action(self::cronHook, [self::class, 'sync']);
+        add_action(self::deleteHook, [self::class, 'deleteOld']);
     }
 
     /**
-     * @return array{glossaryId: string, hash: string, syncedAt: int, pending: bool, error: string, dictionaries: list<array{sourceLang: string, targetLang: string, entries: int}>}
+     * @return array{glossaryId: string, hash: string, syncedAt: int, pending: bool, error: string, failures: int, retryAt: int, dictionaries: list<array{sourceLang: string, targetLang: string, entries: int}>}
      */
     public static function state(): array
     {
@@ -50,6 +71,9 @@ final class DeeplGlossary
             'syncedAt' => 0,
             'pending' => false,
             'error' => '',
+            // Failed sends in a row, and when the next one is due.
+            'failures' => 0,
+            'retryAt' => 0,
             'dictionaries' => [],
         ], is_array($state) ? $state : []);
     }
@@ -112,10 +136,16 @@ final class DeeplGlossary
         }
     }
 
-    /** Before an AI translation: send a change that has not gone yet. */
+    /**
+     * Before an AI translation: send a change that has not gone yet. Not
+     * while a failed send waits to be tried again: each translation would
+     * wait for DeepL to refuse it once more.
+     */
     public static function syncIfPending(): void
     {
-        if (self::state()['pending']) {
+        $state = self::state();
+
+        if ($state['pending'] && (int) $state['retryAt'] <= time()) {
             self::sync();
         }
     }
@@ -170,7 +200,11 @@ final class DeeplGlossary
             $response = self::request($key, 'POST', '/v3/glossaries', $body);
 
             if ($response instanceof WP_Error) {
-                self::save(array_merge($state, ['pending' => true, 'error' => $response->get_error_message()]));
+                $failures = (int) $state['failures'] + 1;
+                $retryAt = time() + min(HOUR_IN_SECONDS, self::retryAfter * 2 ** min($failures - 1, 6));
+                self::save(array_merge($state, ['pending' => true, 'error' => $response->get_error_message(), 'failures' => $failures, 'retryAt' => $retryAt]));
+                wp_clear_scheduled_hook(self::cronHook);
+                wp_schedule_single_event($retryAt, self::cronHook);
 
                 return $response;
             }
@@ -184,15 +218,30 @@ final class DeeplGlossary
             'syncedAt' => time(),
             'pending' => false,
             'error' => '',
+            'failures' => 0,
+            'retryAt' => 0,
             'dictionaries' => $summary,
         ]);
 
         if ($state['glossaryId'] !== '' && $state['glossaryId'] !== $newId) {
-            // An old copy left behind does no harm; its failure is not the sync's.
-            self::request($key, 'DELETE', '/v3/glossaries/'.rawurlencode($state['glossaryId']));
+            wp_schedule_single_event(time() + self::deleteAfter, self::deleteHook, [$state['glossaryId']]);
         }
 
         return true;
+    }
+
+    /**
+     * Delete a glossary that was replaced, unless it is the current one
+     * again. An old copy left behind does no harm; its failure is not the
+     * sync's.
+     */
+    public static function deleteOld(string $glossaryId): void
+    {
+        $key = self::apiKey();
+
+        if ($key !== '' && $glossaryId !== '' && $glossaryId !== self::state()['glossaryId']) {
+            self::request($key, 'DELETE', '/v3/glossaries/'.rawurlencode($glossaryId));
+        }
     }
 
     /** One glossary per site, named so it is recognisable in the DeepL account. */
@@ -285,6 +334,11 @@ final class DeeplGlossary
         $sourceLang = Glossary::code((string) $body['source_lang']);
         $targetLang = Glossary::code((string) $body['target_lang']);
 
+        // DeepL said the glossary has none for this pair: the retry goes without.
+        if (isset(self::$missingPairs[$sourceLang.'-'.$targetLang])) {
+            return $args;
+        }
+
         foreach ($state['dictionaries'] as $dictionary) {
             if ($dictionary['sourceLang'] === $sourceLang && $dictionary['targetLang'] === $targetLang) {
                 $body['glossary_id'] = $state['glossaryId'];
@@ -295,5 +349,34 @@ final class DeeplGlossary
         }
 
         return $args;
+    }
+
+    /**
+     * A translate request with the glossary that DeepL refused for having
+     * no dictionary of its language pair: Polylang Pro tries again without
+     * the glossary, and {@see addToRequest()} must not add it back, or the
+     * two would go round for ever.
+     *
+     * @param  array<string, mixed>|mixed  $response
+     * @param  array<string, mixed>|mixed  $args
+     */
+    public static function noteMissingDictionary(mixed $response, mixed $args, string $url): mixed
+    {
+        if (! is_array($response) || ! is_array($args) || ! preg_match('#^https://api(-free)?\.deepl\.com/v2/translate$#', $url) || ! is_string($args['body'] ?? null)) {
+            return $response;
+        }
+
+        if ((int) wp_remote_retrieve_response_code($response) !== 400 || ! str_contains(wp_remote_retrieve_body($response), 'No dictionary found for language pair')) {
+            return $response;
+        }
+
+        $body = json_decode($args['body'], true);
+
+        // Only for ours: Polylang Pro's own glossary setting is not ours to undo.
+        if (is_array($body) && ($body['glossary_id'] ?? '') === self::state()['glossaryId'] && self::state()['glossaryId'] !== '' && ! empty($body['source_lang']) && ! empty($body['target_lang'])) {
+            self::$missingPairs[Glossary::code((string) $body['source_lang']).'-'.Glossary::code((string) $body['target_lang'])] = true;
+        }
+
+        return $response;
     }
 }
