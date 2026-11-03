@@ -1018,8 +1018,14 @@ final class TranslationAudit
         // wp_kses_post() drops the `translate` attribute of a nested block's placeholder,
         // and a text without all of them would delete those blocks.
         $text = str_replace(self::blockPlaceholderKsesed, self::blockPlaceholder, $text);
-        // Claude saw it without the editor's soft hyphens: back in the words it kept.
+        // Claude saw it without the editor's soft hyphens: back in the words it
+        // kept. A text that had them (a heading) gets them in its new words too.
         $text = SoftHyphens::restore((string) $segment['translation'], $text);
+        $language = PLL()->model->post->get_language($postId);
+
+        if ($language && Hyphenation::has((string) $segment['translation'])) {
+            $text = Hyphenation::applyToText($text, (string) $language->locale);
+        }
 
         if (substr_count($text, self::blockPlaceholder) !== substr_count((string) $segment['translation'], self::blockPlaceholder)) {
             return new WP_Error('gds_ct_audit_nested', __('Keep every “Polylang placeholder do not modify” line in the text: each stands for a nested block.', 'gds-content-translation'));

@@ -373,6 +373,12 @@ class MachineTranslation
             self::publishTranslations($container, $targetLang);
         }
 
+        // Soft hyphens where the language's long words in headings and buttons
+        // may break; before the review, which then reviews the page as it is.
+        if (! $client instanceof SourceCopyClient && Hyphenation::isEnabled()) {
+            Hyphenation::applyToPost($translationId);
+        }
+
         // What DeepL did not see: the labels in its SVGs and its forms' texts.
         // Before the review, so it reviews the page as it then is.
         if (! $client instanceof SourceCopyClient) {

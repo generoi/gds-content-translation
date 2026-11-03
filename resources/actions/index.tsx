@@ -355,6 +355,68 @@ function PageScanModal( { items, closeModal, onActionPerformed, screen }: Render
 	);
 }
 
+/**
+ * Soft hyphens in the long words of headings and buttons of the selected
+ * rows' originals and translations made before they were added by itself.
+ */
+function HyphenateModal( { items, closeModal, onActionPerformed, screen }: RenderModalProps< Row > & { screen: ActionOps } ) {
+	const languages = translationLanguages();
+	const source = defaultLanguage()?.name ?? '';
+	const [ choice, setChoice ] = useState( 'all' );
+	const [ isBusy, setIsBusy ] = useState( false );
+	const options = [
+		/* translators: %s: language name of the original, e.g. Finnish */
+		{ value: 'all', label: sprintf( __( 'The originals (%s) and their translations', 'gds-content-translation' ), source ) },
+		/* translators: %s: language name of the original, e.g. Finnish */
+		{ value: 'original', label: sprintf( __( 'Only the originals (%s)', 'gds-content-translation' ), source ) },
+		...languages.map( ( language ) => ( {
+			value: language.slug,
+			/* translators: %s: language name, e.g. Swedish */
+			label: sprintf( __( 'Only the translations in %s', 'gds-content-translation' ), language.name ),
+		} ) ),
+	];
+
+	const submit = () => {
+		const args =
+			choice === 'all'
+				? { original: true, languages: languages.map( ( language ) => language.slug ) }
+				: choice === 'original'
+				? { original: true, languages: [] }
+				: { original: false, languages: [ choice ] };
+
+		setIsBusy( true );
+		screen
+			.run( 'hyphenate', items.map( ( row ) => row.sourceId ), args )
+			.then( ( response ) => {
+				notifySuccess( response.message );
+				screen.refresh( true );
+				onActionPerformed?.( items );
+				closeModal?.();
+			} )
+			.catch( () => setIsBusy( false ) );
+	};
+
+	return (
+		<div className="gds-ct__modal">
+			<p>
+				{ __(
+					'Long words in headings and buttons get a few places where a narrow screen may break them, by each language’s hyphenation rules. They show in the editor as soft hyphens, to move or remove. Words that have one already are left as they are.',
+					'gds-content-translation'
+				) }
+			</p>
+			<RadioControl label={ __( 'Posts', 'gds-content-translation' ) } selected={ choice } options={ options } onChange={ ( value: string ) => setChoice( value ) } />
+			<Flex justify="flex-end">
+				<Button variant="tertiary" onClick={ closeModal } disabled={ isBusy }>
+					{ __( 'Cancel', 'gds-content-translation' ) }
+				</Button>
+				<Button variant="primary" onClick={ submit } isBusy={ isBusy } disabled={ isBusy } accessibleWhenDisabled>
+					{ __( 'Add soft hyphens', 'gds-content-translation' ) }
+				</Button>
+			</Flex>
+		</div>
+	);
+}
+
 function TrashModal( { items, closeModal, onActionPerformed, screen }: RenderModalProps< Row > & { screen: ActionOps } ) {
 	const [ isBusy, setIsBusy ] = useState( false );
 	const translations = items.reduce( ( sum, row ) => sum + row.translationCount, 0 );
@@ -484,6 +546,18 @@ export function buildActions( settings: Settings, screen: ActionOps ): Action< R
 	actions.push(
 		languageAction( 'proofread', 'proofread', __( 'Mark proofread…', 'gds-content-translation' ), __( 'Mark proofread', 'gds-content-translation' ) ),
 		languageAction( 'unproofread', 'unproofread', __( 'Mark not proofread…', 'gds-content-translation' ), __( 'Mark not proofread', 'gds-content-translation' ) ),
+		...( settings.hyphenation
+			? [
+					{
+						id: 'hyphenate',
+						label: __( 'Add soft hyphens…', 'gds-content-translation' ),
+						modalHeader: __( 'Add soft hyphens', 'gds-content-translation' ),
+						supportsBulk: true,
+						isEligible: () => true,
+						RenderModal: ( props: RenderModalProps< Row > ) => <HyphenateModal { ...props } screen={ screen } />,
+					},
+			  ]
+			: [] ),
 		{
 			id: 'trash-all',
 			label: __( 'Move to trash…', 'gds-content-translation' ),

@@ -139,6 +139,16 @@ add_filter('gds_content_translation_audit_enabled', '__return_false');
 add_filter('gds_content_translation_audit_model', fn () => 'claude-opus-5-5');
 ```
 
+### Soft hyphens in long words
+
+Finnish and Swedish compounds (*pilariperustukset*, *terrassbrädorna*) overflow headings and buttons on narrow screens. When an AI translation is created, the long words (12 letters or more, `gds_content_translation_hyphenation_min_length`) of its headings (`h1`–`h6`) and button links get a few soft hyphens where the language may break them (*Plint·grunder*, *Kontakt·formulär*), by TeX's hyphenation patterns ([vanderlee/syllable](https://github.com/vanderlee/phpSyllable)): about one every eight letters, never leaving fewer than four letters on a side.
+
+- They are written as [wp-gutenberg-shy](https://github.com/generoi/wp-gutenberg-shy) writes them (`<span class="is-shy-character">&shy;</span>`): an editor sees them in the block editor and can move or remove them, and that plugin shows each as a plain soft hyphen on the page. Without it, the span still works as a soft hyphen.
+- A word that has a soft hyphen already is the editor's and is left as it is; body text, code and words in capitals are left alone.
+- DeepL and Claude get the text without them. A used suggestion keeps them in the words it did not change, and a text that had them gets them in its new words too.
+- **Add soft hyphens…** on the status screen (a row's menu, or bulk) adds them to originals and to translations made before: the originals and their translations, only the originals, or only one language's translations. A post someone has open in the editor is left out.
+- Content translation settings → *Soft hyphens*, on by default; `gds_content_translation_hyphenation` filters it. Off when vanderlee/syllable is not installed (the plugin installed without Composer).
+
 ### Check the page for text in the original's language
 
 The AI review compares the post's own texts. A page shows more: the theme's header and footer, menus, synced patterns, image alt texts, the title and the texts of shared links. **Check the page for Finnish…** (a translation's cell menu, its AI review page, and the bulk action **Check the pages for Finnish…**) reads the page as a visitor gets it and has Claude list what is still in the original's language or another one. Run it when a translation is done, to find what was missed.
@@ -433,6 +443,11 @@ wp-env run, so a `composer update` on a newer PHP cannot pick dev packages they
 cannot install. It does not change the plugin's own PHP requirement.
 
 ## Changelog
+
+### 1.6.1
+
+- **Soft hyphens in long words**: AI translations get soft hyphens in the long words of their headings and buttons, where the language may break them, written as wp-gutenberg-shy writes them, so editors see them in the block editor. **Add soft hyphens…** on the status screen adds them to originals and older translations. Words with a soft hyphen are left as they are; a used suggestion keeps them and gets them in its new words.
+- Unchecking *Illustrations* in the settings for the first time now sticks.
 
 ### 1.6.0
 
