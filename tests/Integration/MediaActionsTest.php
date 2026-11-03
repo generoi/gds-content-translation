@@ -241,6 +241,79 @@ class MediaActionsTest extends RestTestCase
         $this->assertSame([], DocumentTranslation::jobs($ids['fi']));
     }
 
+    public function test_what_is_in_a_synced_pattern_is_listed_and_changed_in_the_pattern(): void
+    {
+        if (! pll_is_translated_post_type('wp_block')) {
+            $this->markTestSkipped('Patterns are not translated without Polylang Pro.');
+        }
+
+        $form = '<!-- wp:gravityforms/form {"formId":"3"} /-->';
+        $patterns = [
+            'en' => $this->createPost('en', ['post_type' => 'wp_block', 'post_title' => 'Order', 'post_content' => $form]),
+            'fi' => $this->createPost('fi', ['post_type' => 'wp_block', 'post_title' => 'Tilaus', 'post_content' => $form]),
+        ];
+        pll_save_post_translations($patterns);
+        $ref = static fn (int $id): string => sprintf('<!-- wp:block {"ref":%d} /-->', $id);
+
+        $ids = $this->createTranslatedPost(['post_content' => $ref($patterns['en'])]);
+        wp_update_post(['ID' => $ids['fi'], 'post_content' => $ref($patterns['fi'])]);
+        MediaCheck::check($ids['fi']);
+
+        $item = $this->request('GET', '/media/'.$ids['fi'])->get_data()['items'][0];
+        $this->assertSame('form:3', $item['key']);
+        $this->assertSame($patterns['fi'], $item['in']);
+        $this->assertSame('Tilaus', $item['inTitle']);
+        $this->assertFalse($item['inOriginal']);
+        $this->assertSame(['replace'], $item['actions']);
+
+        // The pattern changes; the page and the original's pattern do not.
+        $this->assertSame(200, $this->mediaAction($ids['fi'], 'form:3', 'replace', ['value' => 7])->get_status());
+        $this->assertStringContainsString('"formId":"7"', get_post_field('post_content', $patterns['fi']));
+        $this->assertStringContainsString('"formId":"3"', get_post_field('post_content', $patterns['en']));
+        $this->assertSame($ref($patterns['fi']), get_post_field('post_content', $ids['fi']));
+        $this->assertSame([], MediaCheck::get($ids['fi'])['items']);
+
+        // A change to the pattern rechecks the pages that show it.
+        wp_update_post(['ID' => $patterns['fi'], 'post_content' => $form]);
+        MediaCheck::checkSaved();
+        $this->assertSame(['form:3'], array_column(MediaCheck::get($ids['fi'])['items'], 'key'));
+
+        // The original's pattern is not changed for a translation.
+        $other = $this->createTranslatedPost(['post_content' => $ref($patterns['en'])]);
+        MediaCheck::check($other['fi']);
+        $item = $this->request('GET', '/media/'.$other['fi'])->get_data()['items'][0];
+        $this->assertTrue($item['inOriginal']);
+        $this->assertSame([], $item['actions']);
+        $this->assertSame(400, $this->mediaAction($other['fi'], 'form:3', 'replace', ['value' => 7])->get_status());
+        $this->assertStringContainsString('"formId":"3"', get_post_field('post_content', $patterns['en']));
+    }
+
+    public function test_an_svg_in_a_synced_pattern_is_translated_in_the_pattern(): void
+    {
+        if (! DeeplApi::isAvailable() || ! pll_is_translated_post_type('wp_block')) {
+            $this->markTestSkipped('Polylang Pro is not available.');
+        }
+
+        $svg = $this->attachment('plan.svg', 'image/svg+xml', '<svg xmlns="http://www.w3.org/2000/svg"><text>Deck</text></svg>');
+        $content = sprintf('<!-- wp:image {"id":%d} --><figure class="wp-block-image"><img src="%s" class="wp-image-%d"/></figure><!-- /wp:image -->', $svg, wp_get_attachment_url($svg), $svg);
+        $patterns = [
+            'en' => $this->createPost('en', ['post_type' => 'wp_block', 'post_content' => $content]),
+            'fi' => $this->createPost('fi', ['post_type' => 'wp_block', 'post_content' => $content]),
+        ];
+        pll_save_post_translations($patterns);
+        $ids = $this->createTranslatedPost(['post_content' => sprintf('<!-- wp:block {"ref":%d} /-->', $patterns['en'])]);
+        wp_update_post(['ID' => $ids['fi'], 'post_content' => sprintf('<!-- wp:block {"ref":%d} /-->', $patterns['fi'])]);
+
+        $this->assertSame(1, SvgTranslation::translateAll($ids['fi']));
+
+        $copy = MediaCheck::copyOf($svg, 'fi');
+        $this->assertStringContainsString('wp-image-'.$copy, get_post_field('post_content', $patterns['fi']));
+        $this->assertStringContainsString('wp-image-'.$svg.'"', get_post_field('post_content', $patterns['en']));
+        $item = MediaCheck::get($ids['fi'])['items'][0];
+        $this->assertSame('translated', $item['state']);
+        $this->assertSame($patterns['fi'], $item['in']);
+    }
+
     public function test_a_forms_texts_are_walked_without_adding_any(): void
     {
         $form = [

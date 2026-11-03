@@ -283,6 +283,15 @@ function Item( { item, data, busy, onMark, onAction }: ItemProps ) {
 					) }
 					{ translated && <span className="gds-ct-media__done">{ __( 'Translated', 'gds-content-translation' ) }</span> }
 				</p>
+				{ item.inTitle && (
+					<p className="gds-ct-media__hint">
+						{ sprintf(
+							/* translators: %s: synced pattern title */
+							item.inOriginal ? __( 'In the pattern “%s”, which the page still shows in the original language: translate the pattern first.', 'gds-content-translation' ) : __( 'In the pattern “%s”: a change here changes it on every page that shows the pattern.', 'gds-content-translation' ),
+							item.inTitle
+						) }
+					</p>
+				) }
 				{ ! ok && hint( item, data ) && <p className="gds-ct-media__hint">{ hint( item, data ) }</p> }
 				{ ! ok && ! translated && !! item.texts?.length && <Texts texts={ item.texts } /> }
 				{ translated && !! item.labels?.length && <Texts texts={ item.labels.map( ( label ) => label.translation ) } /> }

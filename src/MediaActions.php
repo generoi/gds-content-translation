@@ -25,12 +25,22 @@ final class MediaActions
      */
     public static function describe(int $postId, array $items): array
     {
-        $jobs = DocumentTranslation::jobs($postId);
+        $pageJobs = DocumentTranslation::jobs($postId);
         $language = PLL()->model->post->get_language($postId);
 
         foreach ($items as $index => $item) {
             $actions = [];
             $attachmentId = (int) ($item['attachmentId'] ?? 0);
+
+            // The page shows the original's pattern: changing it would change the original.
+            if (! empty($item['inOriginal'])) {
+                $item['actions'] = [];
+                $items[$index] = $item;
+
+                continue;
+            }
+
+            $jobs = ! empty($item['in']) ? DocumentTranslation::jobs((int) $item['in']) : $pageJobs;
 
             switch ($item['kind']) {
                 case 'document':
@@ -96,8 +106,15 @@ final class MediaActions
             return new WP_Error('gds_ct_media_gone', __('The translation no longer shows this. Reload the page.', 'gds-content-translation'));
         }
 
+        if (! empty($item['inOriginal'])) {
+            return new WP_Error('gds_ct_media_original_pattern', __('This is in the original’s pattern: translate the pattern first.', 'gds-content-translation'));
+        }
+
         $attachmentId = (int) ($item['attachmentId'] ?? 0);
         $value = $args['value'] ?? '';
+        $pageId = $postId;
+        // What is in a pattern is changed there.
+        $postId = (int) ($item['in'] ?? 0) ?: $postId;
 
         $result = match ($action) {
             'replace' => match ($item['kind']) {
@@ -115,6 +132,10 @@ final class MediaActions
             'document-discard' => DocumentTranslation::discard($postId, $attachmentId),
             default => new WP_Error('gds_ct_media_action', __('Unknown action.', 'gds-content-translation')),
         };
+
+        if ($postId !== $pageId) {
+            MediaCheck::check($pageId);
+        }
 
         return $result instanceof WP_Error ? $result : true;
     }

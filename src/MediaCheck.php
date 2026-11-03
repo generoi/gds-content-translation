@@ -56,7 +56,7 @@ final class MediaCheck
     public const copyLanguageMetaKey = '_gds_content_translation_copy_language';
 
     /** Bumped when what is found changes, so the site is checked again. */
-    public const version = 1;
+    public const version = 2;
 
     private const versionOption = 'gds_content_translation_media_version';
 
@@ -137,6 +137,14 @@ final class MediaCheck
         self::$saved = [];
 
         foreach ($postIds as $postId) {
+            if (get_post_type($postId) === 'wp_block') {
+                foreach (self::showing(array_values(array_map('intval', pll_get_post_translations($postId) ?: [$postId]))) as $pageId) {
+                    $postIds[] = $pageId;
+                }
+            }
+        }
+
+        foreach (array_unique($postIds) as $postId) {
             $language = pll_get_post_language($postId);
 
             if (! $language) {
@@ -156,6 +164,40 @@ final class MediaCheck
                 }
             }
         }
+    }
+
+    /**
+     * The posts that show any of these synced patterns.
+     *
+     * @param  list<int>  $patternIds
+     * @return list<int>
+     */
+    public static function showing(array $patternIds): array
+    {
+        global $wpdb;
+
+        if ($patternIds === []) {
+            return [];
+        }
+
+        $likes = implode(' OR ', array_fill(0, count($patternIds), 'post_content LIKE %s'));
+        $values = array_map(static fn (int $id): string => '%'.$wpdb->esc_like('"ref":'.$id).'%', $patternIds);
+
+        $ids = array_map('intval', $wpdb->get_col($wpdb->prepare(
+            "SELECT ID FROM {$wpdb->posts} WHERE post_status NOT IN ('trash', 'auto-draft', 'inherit') AND ({$likes})",
+            ...$values
+        )));
+
+        // `"ref":14` matches `"ref":144` too.
+        return array_values(array_filter($ids, static function (int $id) use ($patternIds): bool {
+            foreach ($patternIds as $patternId) {
+                if (preg_match('/"ref":'.$patternId.'\b/', (string) get_post_field('post_content', $id))) {
+                    return true;
+                }
+            }
+
+            return false;
+        }));
     }
 
     public static function onDelete(int $postId): void
@@ -190,6 +232,12 @@ final class MediaCheck
         $ok = self::okKeys($postId);
 
         foreach (self::find($post, $default, (string) $language) as $key => $item) {
+            // In a pattern: an action changes the pattern, so only its translation's.
+            if (! empty($item['in'])) {
+                $item['inTitle'] = get_the_title((int) $item['in']);
+                $item['inOriginal'] = pll_get_post_language((int) $item['in']) !== $language;
+            }
+
             // Only what the original shows too: anything else was chosen for this
             // translation. A translated copy made here is listed, to correct it.
             if (! isset($sourceItems[$key])) {
@@ -459,47 +507,65 @@ final class MediaCheck
             $items[$item['key']] ??= $item;
         };
 
-        $blocks = parse_blocks($post->post_content);
-        $walk = static function (array $blocks) use (&$walk, $add, $sourceSlug, $targetSlug): void {
-            foreach ($blocks as $block) {
-                $name = (string) ($block['blockName'] ?? '');
-                $attrs = (array) ($block['attrs'] ?? []);
+        // A synced pattern's content shows on the page too: what is in it is
+        // listed with the pattern it is in (`in`), which an action changes.
+        $seen = [$post->ID => true];
+        $scan = static function (string $content, int $in) use (&$scan, &$seen, $add, $sourceSlug, $targetSlug): void {
+            $addIn = static fn (array $item) => $add($in > 0 ? $item + ['in' => $in] : $item);
 
-                foreach (self::attachmentIds($attrs) as $attachmentId) {
-                    if ($item = self::attachmentItem($attachmentId)) {
-                        $add($item);
+            $walk = static function (array $blocks) use (&$walk, &$scan, &$seen, $addIn, $sourceSlug, $targetSlug): void {
+                foreach ($blocks as $block) {
+                    $name = (string) ($block['blockName'] ?? '');
+                    $attrs = (array) ($block['attrs'] ?? []);
+
+                    if ($name === 'core/block' && ! empty($attrs['ref'])) {
+                        $pattern = get_post((int) $attrs['ref']);
+
+                        if ($pattern && $pattern->post_type === 'wp_block' && ! isset($seen[$pattern->ID])) {
+                            $seen[$pattern->ID] = true;
+                            $scan($pattern->post_content, $pattern->ID);
+                        }
+
+                        continue;
                     }
-                }
 
-                if ($name === 'gravityforms/form' && ! empty($attrs['formId'])) {
-                    $add(self::formItem((int) $attrs['formId']));
-                }
+                    foreach (self::attachmentIds($attrs) as $attachmentId) {
+                        if ($item = self::attachmentItem($attachmentId)) {
+                            $addIn($item);
+                        }
+                    }
 
-                if ($name === 'core/embed' && ! empty($attrs['url'])) {
-                    $add(self::embedItem((string) $attrs['url']));
-                }
+                    if ($name === 'gravityforms/form' && ! empty($attrs['formId'])) {
+                        $addIn(self::formItem((int) $attrs['formId']));
+                    }
 
-                foreach (self::htmlItems((string) ($block['innerHTML'] ?? ''), $sourceSlug, $targetSlug) as $item) {
-                    $add($item);
-                }
+                    if ($name === 'core/embed' && ! empty($attrs['url'])) {
+                        $addIn(self::embedItem((string) $attrs['url']));
+                    }
 
-                $walk((array) ($block['innerBlocks'] ?? []));
+                    foreach (self::htmlItems((string) ($block['innerHTML'] ?? ''), $sourceSlug, $targetSlug) as $item) {
+                        $addIn($item);
+                    }
+
+                    $walk((array) ($block['innerBlocks'] ?? []));
+                }
+            };
+            $walk(parse_blocks($content));
+
+            // Classic content, and shortcodes in it or in blocks.
+            if (! has_blocks($content)) {
+                foreach (self::htmlItems($content, $sourceSlug, $targetSlug) as $item) {
+                    $addIn($item);
+                }
+            }
+
+            if (preg_match_all('/\[gravityforms?\b[^\]]*\bid=["\']?(\d+)/', $content, $matches)) {
+                foreach ($matches[1] as $formId) {
+                    $addIn(self::formItem((int) $formId));
+                }
             }
         };
-        $walk($blocks);
-
-        // Classic content, and shortcodes in it or in blocks.
-        if (! has_blocks($post->post_content)) {
-            foreach (self::htmlItems($post->post_content, $sourceSlug, $targetSlug) as $item) {
-                $add($item);
-            }
-        }
-
-        if (preg_match_all('/\[gravityforms?\b[^\]]*\bid=["\']?(\d+)/', $post->post_content, $matches)) {
-            foreach ($matches[1] as $formId) {
-                $add(self::formItem((int) $formId));
-            }
-        }
+        $scan($post->post_content, 0);
 
         $thumbnailId = (int) get_post_thumbnail_id($post);
 
