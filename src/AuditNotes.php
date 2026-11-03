@@ -16,11 +16,16 @@ if (! defined('ABSPATH')) {
  * `metadata.noteId`. Each remark gets its own note on the innermost block
  * holding its text. Resolving or deleting the note in the editor closes the
  * remark, and closing the remark on the review page resolves the note.
+ * Each note also says which run of the review made it: a note left by
+ * another run changes nothing (its remark IDs are another review's).
  */
 final class AuditNotes
 {
     /** On the note: the ID of the remark it was made for. */
     public const remarkMetaKey = '_gds_content_translation_audit_remark';
+
+    /** On the note: the run of the review it was made by (the review's `run`). */
+    public const runMetaKey = '_gds_content_translation_audit_run';
 
     /** Set while this class changes a note itself, so the sync hooks stay out. */
     private static bool $syncing = false;
@@ -35,7 +40,7 @@ final class AuditNotes
      * Add a note for every open remark and link it to its block.
      *
      * @param  array<string, mixed>  $review
-     * @return array<string, mixed> The review with each remark's noteId and the new content hash.
+     * @return array<string, mixed> The review with each remark's noteId, and the new content hash when nobody edited the translation meanwhile.
      */
     public static function add(int $postId, array $review): array
     {
@@ -63,7 +68,7 @@ final class AuditNotes
                 'comment_content' => self::noteText($remark),
                 'comment_author' => __('AI review', 'gds-content-translation'),
                 'user_id' => (int) ($review['requestedBy'] ?? 0),
-                'comment_meta' => [self::remarkMetaKey => (int) $remark['id']],
+                'comment_meta' => array_filter([self::remarkMetaKey => (int) $remark['id'], self::runMetaKey => (string) ($review['run'] ?? '')]),
             ]);
 
             if ($noteId <= 0) {
@@ -77,9 +82,14 @@ final class AuditNotes
         }
 
         if ($changed) {
-            $content = serialize_blocks($blocks);
-            self::saveContent($postId, $content);
-            $review['contentHash'] = TranslationAudit::contentHash($postId);
+            // Adding the notes is no edit, but a save while the review ran
+            // is: then the hash stays the one the review saw, so it shows.
+            $unedited = ! TranslationAudit::editedSince($postId, (string) ($review['contentHash'] ?? ''));
+            self::saveContent($postId, serialize_blocks($blocks));
+
+            if ($unedited) {
+                $review['contentHash'] = TranslationAudit::contentHash($postId);
+            }
         }
 
         return $review;
@@ -154,7 +164,7 @@ final class AuditNotes
 
         $remarkId = (int) get_comment_meta((int) $comment->comment_ID, self::remarkMetaKey, true);
 
-        if ($remarkId <= 0) {
+        if ($remarkId <= 0 || ! self::ofCurrentRun($comment)) {
             return;
         }
 
@@ -180,9 +190,20 @@ final class AuditNotes
 
         $remarkId = (int) get_comment_meta((int) $comment->comment_ID, self::remarkMetaKey, true);
 
-        if ($remarkId > 0) {
+        if ($remarkId > 0 && self::ofCurrentRun($comment)) {
             TranslationAudit::setRemarkState((int) $comment->comment_post_ID, $remarkId, 'dismissed', false);
         }
+    }
+
+    /**
+     * Whether a note was made by the review the translation has now. Notes
+     * and reviews from before runs were told apart have no run, and match.
+     */
+    private static function ofCurrentRun(WP_Comment $note): bool
+    {
+        $review = TranslationAudit::get((int) $note->comment_post_ID);
+
+        return (string) get_comment_meta((int) $note->comment_ID, self::runMetaKey, true) === (string) ($review['run'] ?? '');
     }
 
     /**

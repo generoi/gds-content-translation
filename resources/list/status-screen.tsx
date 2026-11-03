@@ -182,12 +182,16 @@ export function StatusScreen() {
 
 	// Rows with an AI review running are reloaded until it is done.
 	const data = rows.data?.rows;
-	// Which reviews run: a new one (the next of a bulk run, say) gives the
-	// polling its time again.
+	// Which reviews and page checks run: a new one (the next of a bulk run,
+	// say) gives the polling its time again.
 	const reviewing = useMemo(
 		() =>
 			( data ?? [] )
-				.flatMap( ( row ) => Object.values( row.languages ).filter( ( cell ) => cell.audit?.status === 'pending' ).map( ( cell ) => cell.postId ) )
+				.flatMap( ( row ) =>
+					Object.values( row.languages )
+						.filter( ( cell ) => cell.audit?.status === 'pending' || cell.scan?.status === 'queued' || cell.scan?.status === 'running' )
+						.map( ( cell ) => `${ cell.postId }:${ cell.audit?.status ?? '' }:${ cell.scan?.status ?? '' }` )
+				)
 				.join( ',' ),
 		[ data ]
 	);

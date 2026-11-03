@@ -83,11 +83,11 @@ export function SummaryBar( { summary, view, onChangeView }: { summary: Summary 
 				</span>
 			) ) }
 			{ checking && (
-				<span className="gds-ct__summary-checking" title={ __( 'Files, images and forms still in the original language are counted once every translation is checked.', 'gds-content-translation' ) }>
+				<span className="gds-ct__summary-checking" title={ __( 'Files, images, forms, links and texts still in the original language are counted once every translation is checked.', 'gds-content-translation' ) }>
 					{ check.checked < check.total
 						? sprintf(
 								/* translators: 1: translations checked, 2: all translations */
-								__( 'Checking files and images: %1$d of %2$d', 'gds-content-translation' ),
+								__( 'Checking files, links and texts: %1$d of %2$d', 'gds-content-translation' ),
 								check.checked,
 								check.total
 						  )

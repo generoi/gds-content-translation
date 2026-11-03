@@ -67,6 +67,16 @@ export interface Settings {
 	glossary?: GlossarySettings;
 	/** Polylang → Form translations, when Gravity Forms is active. */
 	forms?: { available: boolean; url: string };
+	/** Polylang → String translations. */
+	strings?: {
+		url: string;
+		/** Polylang's own Strings translations screen. */
+		polylangUrl: string;
+		/** Polylang does not translate media: an image has an alt text per language. */
+		alts: boolean;
+		/** DeepL is set up. */
+		translate: boolean;
+	};
 }
 
 declare global {

@@ -36,14 +36,25 @@ final class BulkTranslation
 
     private const cronHook = 'gds_content_translation_run_bulk';
 
-    /** Option row that says a worker is running, holding when it last moved on. */
+    /**
+     * Option row that says a worker is running: "<time>:<owner>", when it
+     * last moved on and a token of the worker, so only that worker renews
+     * or removes it.
+     */
     private const workerOption = 'gds_ct_bulk_worker';
 
     /** When a worker was last started, so a poll does not start one per request. */
     private const spawnedOption = 'gds_ct_bulk_spawned';
 
-    /** Seconds without progress after which a worker or a job counts as dead. */
+    /**
+     * Seconds without progress after which a worker or a job counts as dead.
+     * A long job is progress too: each request it makes to DeepL or Claude
+     * renews the worker's row ({@see touchWorker()}).
+     */
     private const staleAfter = 300;
+
+    /** Seconds a job waits before it is tried again when its translation is being created elsewhere. */
+    private const retryAfter = MINUTE_IN_SECONDS;
 
     /** Seconds a queued job may wait before the progress poll starts a worker itself. */
     private const stallAfter = 45;
@@ -53,6 +64,9 @@ final class BulkTranslation
 
     /** Finished jobs are forgotten after this long. */
     private const keepFinished = DAY_IN_SECONDS;
+
+    /** The worker row's value while this request is the worker. */
+    private static string $workerValue = '';
 
     public static function init(): void
     {
@@ -246,7 +260,7 @@ final class BulkTranslation
         }
 
         foreach (self::all() as $job) {
-            if ($job['status'] === 'queued' && time() - $job['queuedAt'] > self::stallAfter) {
+            if ($job['status'] === 'queued' && $job['notBefore'] <= time() && time() - $job['queuedAt'] > self::stallAfter) {
                 return true;
             }
         }
@@ -326,6 +340,8 @@ final class BulkTranslation
         $deadline = microtime(true) + $budget;
         $more = false;
         $ran = 0;
+        $heartbeat = static fn () => self::touchWorker(30);
+        add_action('http_api_debug', $heartbeat);
 
         try {
             while (true) {
@@ -342,24 +358,37 @@ final class BulkTranslation
                 }
 
                 self::run($job, $create);
-                self::touchWorker();
                 $ran++;
+
+                // Given up for dead and taken over by another worker: that one goes on.
+                if (! self::touchWorker()) {
+                    break;
+                }
             }
         } finally {
+            remove_action('http_api_debug', $heartbeat);
             self::releaseWorker();
         }
 
         if ($more) {
             self::schedule();
             self::spawn(true);
+        } elseif (! wp_next_scheduled(self::cronHook)) {
+            // Jobs to try again later: a worker then. An event already
+            // scheduled before that ends up here again.
+            $later = array_filter(array_map(static fn (array $job): int => $job['status'] === 'queued' ? $job['notBefore'] : 0, self::all()));
+
+            if ($later !== []) {
+                wp_schedule_single_event(max(time(), min($later)), self::cronHook);
+            }
         }
     }
 
     /**
-     * The oldest queued job. A job left "running" by a worker that died is
-     * put back in the queue (creating it again is safe: a translation that
-     * was made after all is found and the job skipped), or failed after a
-     * few tries.
+     * The oldest queued job that may run now. A job left "running" by a
+     * worker that died is put back in the queue (creating it again is safe:
+     * a translation that was made after all is found and the job skipped),
+     * or failed after a few tries.
      *
      * @return array<string, mixed>|null
      */
@@ -377,7 +406,7 @@ final class BulkTranslation
                 }
             }
 
-            if ($job['status'] === 'queued') {
+            if ($job['status'] === 'queued' && $job['notBefore'] <= time()) {
                 return $job;
             }
         }
@@ -414,16 +443,18 @@ final class BulkTranslation
         }
 
         if ($result instanceof WP_Error && $result->get_error_code() === 'gds_ct_locked' && $job['attempts'] < self::maxAttempts) {
-            // Being created from the status screen right now: try again later.
-            self::save($job['sourceId'], $job['language'], array_merge($job, ['status' => 'queued', 'queuedAt' => time()]));
+            // Being created from the status screen right now: try again in a
+            // minute, not at once, which would use up its tries in a moment.
+            self::save($job['sourceId'], $job['language'], array_merge($job, ['status' => 'queued', 'queuedAt' => time(), 'notBefore' => time() + self::retryAfter]));
 
             return;
         }
 
         if ($result instanceof WP_Error) {
             self::save($job['sourceId'], $job['language'], array_merge($job, [
-                // Someone created it meanwhile: nothing left to do.
-                'status' => $result->get_error_code() === 'gds_ct_exists' ? 'skipped' : 'failed',
+                // Someone created it meanwhile (also while this waited for
+                // their lock): nothing left to do.
+                'status' => $result->get_error_code() === 'gds_ct_exists' || ($result->get_error_code() === 'gds_ct_locked' && (int) pll_get_post((int) $job['sourceId'], (string) $job['language']) > 0) ? 'skipped' : 'failed',
                 'finishedAt' => time(),
                 'error' => $result->get_error_message(),
             ]));
@@ -468,6 +499,8 @@ final class BulkTranslation
             'startedAt' => (int) ($stored['startedAt'] ?? 0),
             'finishedAt' => (int) ($stored['finishedAt'] ?? 0),
             'attempts' => (int) ($stored['attempts'] ?? 0),
+            // Not run before this time: a job tried again later.
+            'notBefore' => (int) ($stored['notBefore'] ?? 0),
             'error' => (string) ($stored['error'] ?? ''),
             'translationId' => (int) ($stored['translationId'] ?? 0),
             'followup' => in_array($stored['followup'] ?? '', TranslationAudit::followups, true) ? $stored['followup'] : '',
@@ -496,39 +529,77 @@ final class BulkTranslation
     {
         global $wpdb;
 
+        $value = time().':'.wp_generate_password(12, false);
         $insert = static fn () => (int) $wpdb->query($wpdb->prepare(
             "INSERT IGNORE INTO {$wpdb->options} (option_name, option_value, autoload) VALUES (%s, %s, 'no')",
             self::workerOption,
-            (string) time()
+            $value
         ));
 
-        if ($insert() === 1) {
-            return true;
+        if ($insert() !== 1) {
+            $current = (string) $wpdb->get_var($wpdb->prepare("SELECT option_value FROM {$wpdb->options} WHERE option_name = %s", self::workerOption));
+            $touchedAt = (int) $current;
+
+            if ($touchedAt > 0 && time() - $touchedAt < self::staleAfter) {
+                return false;
+            }
+
+            $wpdb->query($wpdb->prepare("DELETE FROM {$wpdb->options} WHERE option_name = %s AND option_value = %s", self::workerOption, $current));
+
+            if ($insert() !== 1) {
+                return false;
+            }
         }
 
-        $touchedAt = (int) $wpdb->get_var($wpdb->prepare("SELECT option_value FROM {$wpdb->options} WHERE option_name = %s", self::workerOption));
+        self::$workerValue = $value;
 
-        if ($touchedAt > 0 && time() - $touchedAt < self::staleAfter) {
-            return false;
-        }
-
-        $wpdb->query($wpdb->prepare("DELETE FROM {$wpdb->options} WHERE option_name = %s AND option_value = %s", self::workerOption, (string) $touchedAt));
-
-        return $insert() === 1;
+        return true;
     }
 
-    private static function touchWorker(): void
+    /**
+     * Say the worker is still alive, unless it did so in the last
+     * $every seconds.
+     *
+     * @return bool False when the row is no longer this worker's.
+     */
+    private static function touchWorker(int $every = 0): bool
     {
         global $wpdb;
 
-        $wpdb->query($wpdb->prepare("UPDATE {$wpdb->options} SET option_value = %s WHERE option_name = %s", (string) time(), self::workerOption));
+        if (self::$workerValue === '') {
+            return false;
+        }
+
+        if ($every > 0 && time() - (int) self::$workerValue < $every) {
+            return true;
+        }
+
+        $value = time().substr(self::$workerValue, strpos(self::$workerValue, ':'));
+
+        // Within the same second an UPDATE would change no row: only check it is still ours.
+        $ours = $value === self::$workerValue
+            ? $wpdb->get_var($wpdb->prepare("SELECT option_value FROM {$wpdb->options} WHERE option_name = %s", self::workerOption)) === $value
+            : (int) $wpdb->query($wpdb->prepare("UPDATE {$wpdb->options} SET option_value = %s WHERE option_name = %s AND option_value = %s", $value, self::workerOption, self::$workerValue)) === 1;
+
+        if (! $ours) {
+            self::$workerValue = '';
+
+            return false;
+        }
+
+        self::$workerValue = $value;
+
+        return true;
     }
 
     private static function releaseWorker(): void
     {
         global $wpdb;
 
-        $wpdb->query($wpdb->prepare("DELETE FROM {$wpdb->options} WHERE option_name = %s", self::workerOption));
+        if (self::$workerValue !== '') {
+            $wpdb->query($wpdb->prepare("DELETE FROM {$wpdb->options} WHERE option_name = %s AND option_value = %s", self::workerOption, self::$workerValue));
+            self::$workerValue = '';
+        }
     }
 
     private static function workerAlive(): bool

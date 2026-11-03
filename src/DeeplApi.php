@@ -80,12 +80,14 @@ final class DeeplApi
 
     /**
      * Translate texts, in order. With `$html`, the ones with tags are sent
-     * as HTML, so DeepL keeps their tags.
+     * as HTML, so DeepL keeps their tags. Without a source language DeepL
+     * detects it (a theme's texts, written in English or in the site's
+     * language); the glossary needs one, so it is not used then.
      *
      * @param  list<string>  $texts
      * @return list<string>|WP_Error
      */
-    public static function translate(array $texts, PLL_Language $source, PLL_Language $target, bool $html = false): array|WP_Error
+    public static function translate(array $texts, ?PLL_Language $source, PLL_Language $target, bool $html = false): array|WP_Error
     {
         if ($texts === []) {
             return [];
@@ -123,7 +125,7 @@ final class DeeplApi
      * @param  list<string>  $texts
      * @return list<string>|WP_Error
      */
-    private static function requestTranslation(array $texts, PLL_Language $source, PLL_Language $target, bool $html): array|WP_Error
+    private static function requestTranslation(array $texts, ?PLL_Language $source, PLL_Language $target, bool $html): array|WP_Error
     {
         // DeepL takes at most 50 texts a request (a form's long list of choices).
         if (count($texts) > self::textsPerRequest) {
@@ -143,20 +145,20 @@ final class DeeplApi
         }
 
         $targetCode = self::targetCode($target);
-        $sourceCode = self::sourceCode($source);
+        $sourceCode = $source ? self::sourceCode($source) : '';
 
-        if ($targetCode === '' || $sourceCode === '') {
+        if ($targetCode === '' || ($source && $sourceCode === '')) {
             return new WP_Error('gds_ct_deepl_language', __('DeepL does not translate between these languages.', 'gds-content-translation'));
         }
 
         $response = self::request('POST', '/v2/translate', [
             'headers' => ['Content-Type' => 'application/json'],
-            'body' => (string) wp_json_encode([
+            'body' => (string) wp_json_encode(array_filter([
                 'text' => array_values($texts),
                 'source_lang' => $sourceCode,
                 'target_lang' => $targetCode,
                 'formality' => self::formality($target),
-            ] + ($html ? ['tag_handling' => 'html'] : [])),
+            ], static fn ($value): bool => $value !== '') + ($html ? ['tag_handling' => 'html'] : [])),
         ]);
 
         if ($response instanceof WP_Error) {

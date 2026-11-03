@@ -28,8 +28,18 @@ class MachineTranslation
 
     private const action = 'gds_ct_machine_translate';
 
-    /** Seconds after which a creation lock is treated as abandoned. */
-    private const lockTimeout = 120;
+    /**
+     * Seconds without a sign of life after which a creation lock is treated
+     * as abandoned. A long translation keeps its lock fresh: each request it
+     * makes to DeepL or Claude renews it ({@see refreshLock()}).
+     */
+    private const lockTimeout = 5 * MINUTE_IN_SECONDS;
+
+    /** Seconds between two renewals of the lock. */
+    private const lockRefresh = 30;
+
+    /** @var array{0: string, 1: string}|null The lock this request holds: its name and value. */
+    private ?array $lock = null;
 
     private static ?bool $available = null;
 
@@ -228,13 +238,13 @@ class MachineTranslation
 
         // A double click, or two editors at once, would otherwise create two
         // translations and leave one of them unlinked.
-        $lock = $creator->acquireLock($sourceId, $langSlug);
-
-        if ($lock === '') {
+        if (! $creator->acquireLock($sourceId, $langSlug)) {
             return new WP_Error('gds_ct_locked', __('This translation is already being created. Reload the status screen in a moment.', 'gds-content-translation'));
         }
 
         $unlinked = false;
+        $heartbeat = [$creator, 'refreshLock'];
+        add_action('http_api_debug', $heartbeat);
 
         try {
             $client = $mode === self::modeCopy ? new SourceCopyClient : $creator->getServiceClient();
@@ -260,7 +270,8 @@ class MachineTranslation
             error_log(sprintf('[gds-content-translation] Creating the %s translation of post %d failed: %s', $langSlug, $sourceId, $e));
             $translationId = new WP_Error('gds_ct_exception', $e->getMessage());
         } finally {
-            $creator->releaseLock($lock);
+            remove_action('http_api_debug', $heartbeat);
+            $creator->releaseLock();
         }
 
         if ($translationId instanceof WP_Error) {
@@ -453,41 +464,70 @@ class MachineTranslation
      * row or fails on the unique option name. Not add_option(), whose
      * INSERT ... ON DUPLICATE KEY UPDATE succeeds for both racing requests.
      *
-     * @return string The lock name, or '' when another request holds it.
+     * The value is "<time>:<owner>": the time it was last renewed, and a
+     * token of this request, so only the request that holds the lock renews
+     * or releases it, not one that took it over after it was given up for dead.
      */
-    private function acquireLock(int $sourceId, string $langSlug): string
+    private function acquireLock(int $sourceId, string $langSlug): bool
     {
         global $wpdb;
 
         $name = "gds_ct_lock_{$sourceId}_{$langSlug}";
+        $value = time().':'.wp_generate_password(12, false);
         $insert = static fn () => (int) $wpdb->query($wpdb->prepare(
             "INSERT IGNORE INTO {$wpdb->options} (option_name, option_value, autoload) VALUES (%s, %s, 'no')",
             $name,
-            (string) time()
+            $value
         ));
 
-        if ($insert() === 1) {
-            return $name;
+        if ($insert() !== 1) {
+            // Left behind by a request that died: take it over.
+            $current = (string) $wpdb->get_var($wpdb->prepare("SELECT option_value FROM {$wpdb->options} WHERE option_name = %s", $name));
+            $renewedAt = (int) $current;
+
+            if ($renewedAt > 0 && time() - $renewedAt < self::lockTimeout) {
+                return false;
+            }
+
+            $wpdb->query($wpdb->prepare("DELETE FROM {$wpdb->options} WHERE option_name = %s AND option_value = %s", $name, $current));
+
+            if ($insert() !== 1) {
+                return false;
+            }
         }
 
-        // Left behind by a request that died: take it over.
-        $takenAt = (int) $wpdb->get_var($wpdb->prepare("SELECT option_value FROM {$wpdb->options} WHERE option_name = %s", $name));
+        $this->lock = [$name, $value];
 
-        if ($takenAt > 0 && time() - $takenAt < self::lockTimeout) {
-            return '';
-        }
-
-        $wpdb->query($wpdb->prepare("DELETE FROM {$wpdb->options} WHERE option_name = %s AND option_value = %s", $name, (string) $takenAt));
-
-        return $insert() === 1 ? $name : '';
+        return true;
     }
 
-    private function releaseLock(string $name): void
+    /**
+     * Renew the lock, at most every half a minute. Hooked to every HTTP
+     * request while the translation is created.
+     */
+    public function refreshLock(): void
     {
         global $wpdb;
 
-        if ($name !== '') {
-            $wpdb->query($wpdb->prepare("DELETE FROM {$wpdb->options} WHERE option_name = %s", $name));
+        if ($this->lock === null || time() - (int) $this->lock[1] < self::lockRefresh) {
+            return;
+        }
+
+        [$name, $value] = $this->lock;
+        $renewed = time().substr($value, strpos($value, ':'));
+
+        if ((int) $wpdb->query($wpdb->prepare("UPDATE {$wpdb->options} SET option_value = %s WHERE option_name = %s AND option_value = %s", $renewed, $name, $value)) === 1) {
+            $this->lock[1] = $renewed;
+        }
+    }
+
+    private function releaseLock(): void
+    {
+        global $wpdb;
+
+        if ($this->lock !== null) {
+            $wpdb->query($wpdb->prepare("DELETE FROM {$wpdb->options} WHERE option_name = %s AND option_value = %s", ...$this->lock));
+            $this->lock = null;
         }
     }
 

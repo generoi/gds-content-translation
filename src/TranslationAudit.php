@@ -4,6 +4,7 @@ namespace GeneroWP\ContentTranslation;
 
 use PLL_Language;
 use PLL_Translation_Walker_Factory;
+use Throwable;
 use Translation_Entry;
 use WP_Error;
 use WP_Post;
@@ -19,9 +20,10 @@ if (! defined('ABSPATH')) {
  * Queued once the translation is saved and run in the background, so a slow
  * review never holds up the translation. Segments are paired by walking the
  * original and the translation with Polylang Pro's own translation walker,
- * which also makes a review of an edited translation possible. Only post
- * content is reviewed; title, excerpt and metas are not. The translation
- * itself is never changed.
+ * which also makes a review of an edited translation possible. The post
+ * content is reviewed, then the ACF text fields, the title, the excerpt and
+ * the Yoast SEO texts ({@see pairFields()}). The translation itself is only
+ * changed when a suggestion is used.
  */
 final class TranslationAudit
 {
@@ -102,7 +104,7 @@ final class TranslationAudit
         $audit = new self;
         add_action('wp_ajax_'.self::ajaxAction, [$audit, 'handleBackgroundRequest']);
         add_action('wp_ajax_nopriv_'.self::ajaxAction, [$audit, 'handleBackgroundRequest']);
-        add_action(self::cronHook, [$audit, 'runQueued']);
+        add_action(self::cronHook, [$audit, 'runFromCron']);
     }
 
     /**
@@ -118,10 +120,48 @@ final class TranslationAudit
     }
 
     /**
-     * Which language Claude writes its remarks in.
+     * What the models cost, in US dollars per million tokens: the one place
+     * the prices are kept, for the estimates shown before a call that an
+     * editor starts (the page check). Change them with
+     * `gds_content_translation_claude_prices`.
      *
-     * @return array<string, string>
+     * @return array<string, array{input: float, output: float}> Model ID => prices.
      */
+    public static function modelPrices(): array
+    {
+        return (array) apply_filters('gds_content_translation_claude_prices', [
+            'claude-sonnet-5-5' => ['input' => 2.0, 'output' => 10.0],
+            'claude-opus-5-5' => ['input' => 4.0, 'output' => 20.0],
+            'claude-haiku-5-5' => ['input' => 0.10, 'output' => 0.50],
+        ]);
+    }
+
+    /**
+     * The model the review and the other calls use: the setting, or what
+     * `gds_content_translation_audit_model` makes of it.
+     */
+    public static function model(): string
+    {
+        return (string) apply_filters('gds_content_translation_audit_model', self::settings()['model']);
+    }
+
+    /**
+     * What a call costs in US dollars, as far as its tokens are known. A
+     * model without a price (one set with the filter) is counted at the
+     * dearest price known, so an estimate is never too low.
+     */
+    public static function price(string $model, int $inputTokens, int $outputTokens): float
+    {
+        $prices = self::modelPrices();
+        $price = $prices[$model] ?? null;
+
+        if (! is_array($price)) {
+            $price = ['input' => (float) max(array_column($prices, 'input') ?: [0]), 'output' => (float) max(array_column($prices, 'output') ?: [0])];
+        }
+
+        return ($inputTokens * (float) $price['input'] + $outputTokens * (float) $price['output']) / 1_000_000;
+    }
+
     /**
      * The choices for what happens after the review of a new AI translation:
      * a short title and one line of help each, in the order they are shown.
@@ -244,6 +284,9 @@ final class TranslationAudit
         self::store($postId, [
             'status' => $waiting ? 'queued' : 'pending',
             'queuedAt' => time(),
+            // Which run the editor notes belong to ({@see AuditNotes}): one left
+            // by another run must not close this one's remarks.
+            'run' => wp_generate_password(12, false),
             'sourceId' => $sourceId,
             'requestedBy' => get_current_user_id() ?: (int) ($previous['requestedBy'] ?? 0),
             'followup' => in_array($followup, self::followups, true) ? $followup : 'manual',
@@ -372,6 +415,23 @@ final class TranslationAudit
     }
 
     /**
+     * The WP-Cron fallback. A review still waiting for a free place waits on
+     * while the places are taken, and is looked at again two minutes later.
+     */
+    public function runFromCron(int $postId): void
+    {
+        $queued = self::get($postId);
+
+        if (($queued['status'] ?? '') === 'queued' && self::runningCount() >= self::maxParallel()) {
+            wp_schedule_single_event(time() + 2 * MINUTE_IN_SECONDS, self::cronHook, [$postId]);
+
+            return;
+        }
+
+        $this->runQueued($postId);
+    }
+
+    /**
      * Run the review queued for a translation, if it is still queued.
      */
     public function runQueued(int $postId): void
@@ -390,6 +450,7 @@ final class TranslationAudit
         $review = $this->run($postId, (string) ($queued['pageInstructions'] ?? ''));
         $review['requestedBy'] = (int) ($queued['requestedBy'] ?? 0);
         $review['appliedBefore'] = (int) ($queued['appliedBefore'] ?? 0);
+        $review['run'] = (string) ($queued['run'] ?? '');
 
         if ($review['status'] === 'done' && self::settings()['notes']) {
             $review = AuditNotes::add($postId, $review);
@@ -404,7 +465,24 @@ final class TranslationAudit
             $review['applying'] = time();
         }
 
-        self::store($postId, $review);
+        // Only while this is still the run asked for: one queued meanwhile
+        // ("Run the review again", a new AI translation) replaces it.
+        $current = self::locked($postId, static function () use ($postId, $review): bool {
+            if ((string) (self::get($postId)['run'] ?? '') !== $review['run']) {
+                return false;
+            }
+
+            self::store($postId, $review);
+
+            return true;
+        });
+
+        if (! $current) {
+            AuditNotes::remove($postId, array_values(array_filter(array_map('intval', array_column((array) ($review['remarks'] ?? []), 'noteId')))));
+            self::startNext();
+
+            return;
+        }
 
         if ($review['status'] === 'done') {
             GlossaryLearning::fromReview($postId, $review);
@@ -423,6 +501,19 @@ final class TranslationAudit
 
             try {
                 self::applyAll($postId, $followup);
+            } catch (Throwable $e) {
+                // The review stays, with what was applied; not "running" for good.
+                error_log(sprintf('[gds-content-translation] Applying the suggestions to post %d failed: %s', $postId, $e->getMessage()));
+                $after = self::get($postId);
+
+                if ($after) {
+                    unset($after['applying']);
+                    self::store($postId, $after);
+                }
+
+                self::startNext();
+
+                return;
             } finally {
                 wp_set_current_user($previousUser);
             }
@@ -457,19 +548,21 @@ final class TranslationAudit
             remove_action('post_updated', 'wp_save_post_revision', $revisions);
         }
 
-        foreach ((array) ($review['remarks'] ?? []) as $remark) {
-            $suggestion = trim((string) ($remark['suggestion'] ?? ''));
+        try {
+            foreach ((array) ($review['remarks'] ?? []) as $remark) {
+                $suggestion = trim((string) ($remark['suggestion'] ?? ''));
 
-            if (($remark['state'] ?? 'open') !== 'open' || $suggestion === '') {
-                continue;
+                if (($remark['state'] ?? 'open') !== 'open' || $suggestion === '') {
+                    continue;
+                }
+
+                $result = self::applyText($postId, (int) $remark['id'], (string) $remark['suggestion'], 'auto');
+                $result === true ? $applied++ : $skipped++;
             }
-
-            $result = self::applyText($postId, (int) $remark['id'], (string) $remark['suggestion'], 'auto');
-            $result === true ? $applied++ : $skipped++;
-        }
-
-        if ($revisions !== false) {
-            add_action('post_updated', 'wp_save_post_revision', $revisions);
+        } finally {
+            if ($revisions !== false) {
+                add_action('post_updated', 'wp_save_post_revision', $revisions);
+            }
         }
 
         $review = self::get($postId);
@@ -504,7 +597,7 @@ final class TranslationAudit
     {
         $translation = get_post($postId);
         $source = get_post(self::sourceIdOf($postId));
-        $model = (string) apply_filters('gds_content_translation_audit_model', self::settings()['model']);
+        $model = self::model();
 
         $review = [
             'status' => 'failed',
@@ -551,7 +644,7 @@ final class TranslationAudit
         $review['glossary'] = count($this->glossary);
 
         if ($paired['segments'] === []) {
-            return array_merge($review, ['status' => 'done', 'summary' => __('Nothing to review: the original has no text in its content or its ACF text fields (a page whose content comes from its template, say).', 'gds-content-translation')]);
+            return array_merge($review, ['status' => 'done', 'summary' => __('Nothing to review: the translation has no text of the original in its content, its ACF text fields, its title, excerpt or SEO texts (a page whose content comes from its template, say).', 'gds-content-translation')]);
         }
 
         return $this->review($review, $source, $sourceLanguage, $targetLanguage);
@@ -620,7 +713,9 @@ final class TranslationAudit
 
     /**
      * Every text of a translation paired with the original's: the post
-     * content's, then the ACF text fields'. Numbered in that order.
+     * content's, then the ACF text fields', then the title, the excerpt and
+     * the SEO texts. Numbered in that order, so the numbers of a review made
+     * before the last ones were reviewed still match.
      *
      * @return array{segments: list<array<string, mixed>>, unaligned: int}
      */
@@ -628,11 +723,81 @@ final class TranslationAudit
     {
         $paired = self::pairSegments($source->post_content, $translation->post_content);
 
-        foreach (self::pairAcf((int) $source->ID, (int) $translation->ID) as $field) {
+        foreach (array_merge(self::pairAcf((int) $source->ID, (int) $translation->ID), self::pairFields($source, $translation)) as $field) {
             $paired['segments'][] = ['id' => count($paired['segments']) + 1] + $field;
         }
 
         return $paired;
+    }
+
+    /**
+     * The post's own text fields a review checks besides its content, with
+     * the name an editor knows them by: the title and the excerpt (columns
+     * of the post), and Yoast SEO's titles and descriptions (its metas,
+     * which Polylang copies or translates).
+     *
+     * @return array<string, string> Column or meta key => label.
+     */
+    public static function fieldLabels(): array
+    {
+        return [
+            'post_title' => __('Title', 'gds-content-translation'),
+            'post_excerpt' => __('Excerpt', 'gds-content-translation'),
+            '_yoast_wpseo_title' => __('SEO title', 'gds-content-translation'),
+            '_yoast_wpseo_metadesc' => __('Meta description', 'gds-content-translation'),
+            '_yoast_wpseo_opengraph-title' => __('Social title', 'gds-content-translation'),
+            '_yoast_wpseo_opengraph-description' => __('Social description', 'gds-content-translation'),
+            '_yoast_wpseo_twitter-title' => __('X title', 'gds-content-translation'),
+            '_yoast_wpseo_twitter-description' => __('X description', 'gds-content-translation'),
+        ];
+    }
+
+    /**
+     * The title, the excerpt and the SEO texts the translation has, unless
+     * they are empty or still the original's (a name, or a copy nobody
+     * translated): those leave nothing to review.
+     *
+     * @return list<array{source: string, translation: string, block: null, index: int, field: string, label: string}>
+     */
+    public static function pairFields(WP_Post $source, WP_Post $translation): array
+    {
+        $fields = [];
+
+        foreach (self::fieldLabels() as $field => $label) {
+            $sourceText = self::fieldValue($source, $field);
+            $translationText = self::fieldValue($translation, $field);
+
+            if (trim(wp_strip_all_tags($sourceText)) === '' || trim($translationText) === '' || trim($sourceText) === trim($translationText)) {
+                continue;
+            }
+
+            $fields[] = [
+                'source' => $sourceText,
+                'translation' => $translationText,
+                'block' => null,
+                'index' => -1,
+                'field' => $field,
+                'label' => $label,
+            ];
+        }
+
+        return $fields;
+    }
+
+    private static function fieldValue(WP_Post $post, string $field): string
+    {
+        return str_starts_with($field, 'post_') ? (string) $post->{$field} : (string) get_post_meta($post->ID, $field, true);
+    }
+
+    /**
+     * Which field a text is in, for the review page; '' for the content.
+     *
+     * @param  array<string, mixed>  $segment
+     */
+    public static function segmentLabel(array $segment): string
+    {
+        // In the admin's language now, not the one of the review's time.
+        return self::fieldLabels()[$segment['field'] ?? ''] ?? (string) ($segment['label'] ?? '');
     }
 
     /**
@@ -681,9 +846,12 @@ final class TranslationAudit
 
     /**
      * What a review saw, to tell later whether the translation changed:
-     * the post content and the ACF texts.
+     * the post content, the ACF texts, and the title, excerpt and SEO texts.
+     *
+     * @param  bool  $fields  False for the hash of a review made before the
+     *                        title, excerpt and SEO texts were reviewed.
      */
-    public static function contentHash(int $postId): string
+    public static function contentHash(int $postId, bool $fields = true): string
     {
         $post = get_post($postId);
 
@@ -692,9 +860,27 @@ final class TranslationAudit
         }
 
         $sourceId = self::sourceIdOf($postId);
-        $acf = $sourceId ? array_column(self::pairAcf($sourceId, $postId), 'translation', 'acf') : [];
+        $source = $sourceId ? get_post($sourceId) : null;
+        $texts = $sourceId ? array_column(self::pairAcf($sourceId, $postId), 'translation', 'acf') : [];
 
-        return md5($post->post_content.($acf ? wp_json_encode($acf) : ''));
+        if ($fields && $source) {
+            $texts += array_column(self::pairFields($source, $post), 'translation', 'field');
+        }
+
+        // "f": with the title, excerpt and SEO texts; a review made before
+        // they were has the hash without them, and is compared as it was.
+        return ($fields ? 'f' : '').md5($post->post_content.($texts ? wp_json_encode($texts) : ''));
+    }
+
+    /**
+     * Whether the translation changed since a review that saw it with this
+     * hash, as the review page and the status screen say. A review stored
+     * before the title, excerpt and SEO texts were reviewed has the older
+     * hash, and is compared with the translation's texts as they were then.
+     */
+    public static function editedSince(int $postId, string $hash): bool
+    {
+        return $hash !== '' && $hash !== self::contentHash($postId, str_starts_with($hash, 'f'));
     }
 
     /**
@@ -832,6 +1018,8 @@ final class TranslationAudit
         // wp_kses_post() drops the `translate` attribute of a nested block's placeholder,
         // and a text without all of them would delete those blocks.
         $text = str_replace(self::blockPlaceholderKsesed, self::blockPlaceholder, $text);
+        // Claude saw it without the editor's soft hyphens: back in the words it kept.
+        $text = SoftHyphens::restore((string) $segment['translation'], $text);
 
         if (substr_count($text, self::blockPlaceholder) !== substr_count((string) $segment['translation'], self::blockPlaceholder)) {
             return new WP_Error('gds_ct_audit_nested', __('Keep every “Polylang placeholder do not modify” line in the text: each stands for a nested block.', 'gds-content-translation'));
@@ -839,7 +1027,7 @@ final class TranslationAudit
 
         // A review stored before texts kept their place: find it the way the
         // review page pairs the texts now, if it still says the same.
-        if (empty($segment['acf']) && ! array_key_exists('index', $segment)) {
+        if (empty($segment['acf']) && empty($segment['field']) && ! array_key_exists('index', $segment)) {
             $source = get_post((int) ($review['sourceId'] ?? 0));
             $current = $source ? (array_column(self::currentSegments($source, $post)['segments'], null, 'id')[$segment['id']] ?? null) : null;
 
@@ -851,6 +1039,11 @@ final class TranslationAudit
 
         $changed = new WP_Error('gds_ct_audit_changed', __('This text has changed in the translation since the review. Make the change in the editor.', 'gds-content-translation'));
 
+        // Whether the translation is still as the review saw it, apart from
+        // what was used here: only then is the change below not an edit.
+        // Someone's save meanwhile keeps the old hash, so it still shows.
+        $unedited = ! self::editedSince($postId, (string) ($review['contentHash'] ?? ''));
+
         if (! empty($segment['acf'])) {
             // An ACF field: its value is the whole text.
             if ((string) get_post_meta($postId, $segment['acf'], true) !== $segment['translation']) {
@@ -858,6 +1051,19 @@ final class TranslationAudit
             }
 
             update_post_meta($postId, $segment['acf'], wp_slash($text));
+        } elseif (! empty($segment['field'])) {
+            // The title, the excerpt or an SEO text: its value is the whole text.
+            $field = (string) $segment['field'];
+
+            if (! isset(self::fieldLabels()[$field]) || self::fieldValue($post, $field) !== $segment['translation']) {
+                return $changed;
+            }
+
+            if (str_starts_with($field, 'post_')) {
+                wp_update_post(['ID' => $postId, $field => wp_slash($text)]);
+            } else {
+                update_post_meta($postId, $field, wp_slash($text));
+            }
         } else {
             $content = self::replaceString($post->post_content, $segment['block'] ?? null, (int) ($segment['index'] ?? -1), $segment['translation'], $text);
 
@@ -870,7 +1076,10 @@ final class TranslationAudit
 
         $review['segments'][$segmentIndex]['reviewed'] ??= $segment['translation'];
         $review['segments'][$segmentIndex]['translation'] = $text;
-        $review['contentHash'] = self::contentHash($postId);
+
+        if ($unedited) {
+            $review['contentHash'] = self::contentHash($postId);
+        }
 
         foreach ($review['remarks'] as $index => $candidate) {
             if ((int) $candidate['id'] === $remarkId) {
@@ -1282,14 +1491,14 @@ final class TranslationAudit
      *
      * @param  string|list<array<string, mixed>>  $user  The question, or its content blocks (an image and a question).
      * @param  array<string, mixed>  $schema
+     * @param  int  $maxTokens  Room for the answer, thinking included.
      * @return array<string, mixed>|WP_Error
      */
-    public function ask(string $system, string|array $user, array $schema): array|WP_Error
+    public function ask(string $system, string|array $user, array $schema, int $maxTokens = 4000): array|WP_Error
     {
-        $model = (string) apply_filters('gds_content_translation_audit_model', self::settings()['model']);
         $message = $this->request([
-            'model' => $model,
-            'max_tokens' => 4000,
+            'model' => self::model(),
+            'max_tokens' => $maxTokens,
             'system' => $system,
             'messages' => [['role' => 'user', 'content' => $user]],
             'output_config' => ['format' => ['type' => 'json_schema', 'schema' => $schema]],
@@ -1347,6 +1556,7 @@ Rules for remarks:
 - Do not report personal style preferences or wording that is already correct and natural. A page with a good translation should get few or no remarks.
 - Leave URLs, link targets and HTML attributes alone; links are handled separately.
 - `<pre translate="no">Polylang placeholder do not modify</pre>` stands for a nested block. It is not text: never report it, and keep it exactly where it is in every suggestion.
+- The SEO fields can contain variables such as `%%title%%`, `%%sep%%` and `%%sitename%%`, which the site fills in. They are not text: never translate or report them, and keep every one of them in every suggestion.
 - Make sure the explanation is factually correct, for example about grammatical gender.
 - Keep remarks consistent with each other: do not suggest a term in one remark that another remark advises against.
 
@@ -1390,10 +1600,11 @@ PROMPT;
             'part' => $parts > 1 ? sprintf('Part %d of %d of the page; the segment numbers continue across parts.', $part, $parts) : null,
             'segments' => array_map(static fn (array $segment): array => array_filter([
                 'id' => $segment['id'],
-                // ACF fields: which one, as the editor knows it.
+                // ACF fields, the title and so on: which one, as the editor knows it.
                 'field' => $segment['label'] ?? null,
-                'source' => $segment['source'],
-                'translation' => $segment['translation'],
+                // Without an editor's soft hyphens, which split words for Claude.
+                'source' => SoftHyphens::strip((string) $segment['source']),
+                'translation' => SoftHyphens::strip((string) $segment['translation']),
             ], static fn ($value): bool => $value !== null), $segments),
         ], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     }
@@ -1465,12 +1676,17 @@ PROMPT;
             // Every remark is fixed with one click: one without a suggestion,
             // or with one identical to the current translation, is a remark
             // that found nothing to change ("acceptable", "not an error").
-            if ($suggestion === '' || $suggestion === trim($translation)) {
+            if ($suggestion === '' || $suggestion === trim($translation) || $suggestion === trim(SoftHyphens::strip($translation))) {
                 continue;
             }
 
             // Using a suggestion that lost a nested block would delete it.
             if (substr_count($suggestion, self::blockPlaceholder) !== substr_count($translation, self::blockPlaceholder)) {
+                continue;
+            }
+
+            // Nor may it lose one of an SEO text's variables (%%title%%).
+            if (self::seoVariables($suggestion) !== self::seoVariables($translation)) {
                 continue;
             }
 
@@ -1498,5 +1714,19 @@ PROMPT;
         }
 
         return $normalized;
+    }
+
+    /**
+     * Yoast SEO's variables in a text, sorted.
+     *
+     * @return list<string>
+     */
+    private static function seoVariables(string $text): array
+    {
+        preg_match_all('/%%[a-z0-9_-]+%%/i', $text, $matches);
+        $variables = $matches[0];
+        sort($variables);
+
+        return $variables;
     }
 }

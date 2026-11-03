@@ -182,6 +182,7 @@ final class StatusList
         $proofread = self::proofreadPostIds($translationIds);
         $audits = TranslationAudit::statuses($translationIds);
         $media = MediaCheck::openCounts($translationIds);
+        $scans = PageScan::statuses($translationIds);
         $jobs = BulkTranslation::jobsBySource($sourceIds);
         $entries = [];
 
@@ -207,6 +208,7 @@ final class StatusList
                     'audit' => $audits[$translationId] ?? null,
                     // Files, images and forms still the original's; null when not checked yet.
                     'media' => $media[$translationId] ?? null,
+                    'scan' => $scans[$translationId] ?? null,
                 ];
             }
 
@@ -450,6 +452,8 @@ final class StatusList
                     'canDelete' => $deletable,
                     'audit' => $cell['trashed'] ? null : self::audit($postId, $cell['audit']),
                     'media' => $cell['trashed'] ? 0 : (int) ($cell['media'] ?? 0),
+                    // The last check of the page: none, queued, running, stuck, done or failed, and what it found.
+                    'scan' => ['status' => (string) ($cell['scan']['status'] ?? 'none'), 'found' => (int) ($cell['scan']['found'] ?? 0)],
                     'job' => $job,
                 ];
             }
@@ -490,7 +494,7 @@ final class StatusList
             'status' => $audit['status'],
             'errors' => $audit['errors'],
             'other' => $audit['other'],
-            'edited' => $audit['status'] === 'done' && $post && $audit['contentHash'] !== '' && TranslationAudit::contentHash((int) $post->ID) !== $audit['contentHash'],
+            'edited' => $audit['status'] === 'done' && $post && TranslationAudit::editedSince((int) $post->ID, $audit['contentHash']),
             'error' => $audit['status'] === 'failed' ? (string) (TranslationAudit::get($postId)['error'] ?? '') : '',
             'url' => AuditReview::getUrl($postId),
         ];

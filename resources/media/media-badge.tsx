@@ -9,20 +9,20 @@ import { __, _n, sprintf } from '@wordpress/i18n';
 import { defaultLanguage } from '../settings';
 import { MediaList } from './media-list';
 
-export function MediaModal( { postId, about, onChange, onClose }: { postId: number; about: string; onChange: () => void; onClose: () => void } ) {
+export function MediaModal( { postId, about, onChange, onQueued, onClose }: { postId: number; about: string; onChange: () => void; onQueued?: () => void; onClose: () => void } ) {
 	const source = defaultLanguage()?.name ?? '';
 
 	return (
 		<Modal
 			title={
 				/* translators: %s: language name of the original, e.g. Finnish */
-				sprintf( __( 'Files, images and forms in %s', 'gds-content-translation' ), source )
+				sprintf( __( 'Files, images, links and texts in %s', 'gds-content-translation' ), source )
 			}
 			onRequestClose={ onClose }
 			size="medium"
 		>
 			<p className="gds-ct-media__intro">{ about }</p>
-			<MediaList postId={ postId } onChange={ onChange } />
+			<MediaList postId={ postId } onChange={ onChange } onQueued={ onQueued } />
 		</Modal>
 	);
 }
@@ -46,7 +46,7 @@ export function MediaBadge( { count, about, onOpen }: { count?: number; about: s
 	);
 	const title = sprintf(
 		/* translators: 1: number, 2: language name of the original, e.g. Finnish */
-		_n( '%1$d file, image or form still in %2$s', '%1$d files, images or forms still in %2$s', count, 'gds-content-translation' ),
+		_n( '%1$d file, image, form, link or text still in %2$s or not written yet', '%1$d files, images, forms, links or texts still in %2$s or not written yet', count, 'gds-content-translation' ),
 		count,
 		source
 	);

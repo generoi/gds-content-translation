@@ -13,7 +13,7 @@ export interface RemarkRow {
 	id: string;
 	remarkId: number;
 	segment: number;
-	/** The ACF field's label; empty for the content. */
+	/** Which field: the ACF field's label, or Title, Excerpt, SEO title and so on; empty for the content. */
 	label: string;
 	/** HTML, sanitised by the server. */
 	source: string;
@@ -27,8 +27,10 @@ export interface RemarkRow {
 	categoryLabel: string;
 	issue: string;
 	suggestion: string;
-	/** HTML: the translation with the suggestion's changes as <del>/<ins>. */
+	/** HTML: the translation with the suggestion's changes as <del>/<ins>; empty when the texts are too long to compare. */
 	suggestionDiff: string;
+	/** HTML, sanitised by the server: the suggestion as it is, shown when there is no diff. */
+	suggestionText: string;
 	state: RemarkState;
 	stateLabel: string;
 }

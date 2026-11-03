@@ -8,6 +8,7 @@ use GeneroWP\ContentTranslation\Polylang\BlockRules;
 use GeneroWP\ContentTranslation\Polylang\MetaRules;
 use GeneroWP\ContentTranslation\Rest\GlossaryController;
 use GeneroWP\ContentTranslation\Rest\StatusController;
+use GeneroWP\ContentTranslation\Rest\StringsController;
 
 class Plugin
 {
@@ -36,10 +37,12 @@ class Plugin
         Admin::init();
         Settings::init();
         MachineTranslation::init();
+        SoftHyphens::init();
         TranslationAudit::init();
         AuditReview::init();
         AuditNotes::init();
         MediaCheck::init();
+        PageScan::init();
         DocumentTranslation::init();
         FormTranslation::init();
         BulkTranslation::init();
@@ -48,6 +51,8 @@ class Plugin
         DeeplGlossary::init();
         GlossaryLearning::init();
         GlossaryController::init();
+        StringsController::init();
+        ImageAlt::init();
 
         new BlockRules;
         new BlockLinkTranslation;

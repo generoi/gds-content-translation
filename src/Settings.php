@@ -28,6 +28,7 @@ class Settings
     {
         add_action('admin_menu', [$this, 'registerMenu'], 21);
         add_action('admin_init', [$this, 'handleSave']);
+        add_action('admin_init', [$this, 'handleBlockRulesCheck']);
         add_action('admin_init', [self::class, 'ensureOption']);
     }
 
@@ -101,6 +102,75 @@ class Settings
         ]);
 
         add_settings_error('gds_content_translation', 'settings_updated', __('Settings saved.', 'gds-content-translation'), 'success');
+    }
+
+    /**
+     * Check the block texts when asked: it renders blocks of the site's
+     * pages, so not on every visit of the page.
+     */
+    public function handleBlockRulesCheck(): void
+    {
+        if (! isset($_POST['gds_ct_block_rules_check']) || ! current_user_can('manage_options')) {
+            return;
+        }
+
+        check_admin_referer('gds_content_translation_block_rules');
+        BlockRulesCheck::run();
+
+        add_settings_error('gds_content_translation', 'block_rules_checked', __('Block texts checked.', 'gds-content-translation'), 'success');
+    }
+
+    /**
+     * The block texts Polylang does not translate, from the last check.
+     */
+    private function renderBlockRules(): void
+    {
+        $check = BlockRulesCheck::cached();
+
+        ?>
+        <h2><?php echo esc_html__('Block texts', 'gds-content-translation'); ?></h2>
+        <p><?php echo esc_html__('Texts that the theme’s and plugins’ blocks keep in their settings are translated only when they have a translation rule. Without one, the translation shows them in the original language.', 'gds-content-translation'); ?></p>
+        <?php if ($check === null) { ?>
+            <p class="description"><?php echo esc_html__('Not checked yet. The check renders blocks of the site’s pages and takes a moment.', 'gds-content-translation'); ?></p>
+        <?php } elseif ($check['missing'] === []) { ?>
+            <p><?php echo esc_html__('Every block text found on the site’s pages has a translation rule.', 'gds-content-translation'); ?></p>
+        <?php } else { ?>
+            <p><strong><?php echo esc_html__('These block texts are not translated:', 'gds-content-translation'); ?></strong></p>
+            <ul class="gds-content-translation-settings__block-rules">
+                <?php foreach ($check['missing'] as $missing) { ?>
+                    <li>
+                        <code><?php echo esc_html($missing['block']); ?></code> → <code><?php echo esc_html($missing['attribute']); ?></code>
+                        <?php echo esc_html(sprintf(
+                            /* translators: 1: number of pages, 2: example text */
+                            _n('(on %1$d page, for example “%2$s”)', '(on %1$d pages, for example “%2$s”)', $missing['pages'], 'gds-content-translation'),
+                            $missing['pages'],
+                            $missing['example']
+                        )); ?>
+                    </li>
+                <?php } ?>
+            </ul>
+            <p class="description"><?php
+                echo wp_kses(sprintf(
+                    /* translators: %s: filter name */
+                    __('A developer adds the rules with the %s filter.', 'gds-content-translation'),
+                    '<code>gds_content_translation_pll_blocks_rules_for_attributes</code>'
+                ), ['code' => []]);
+            ?></p>
+        <?php } ?>
+        <form method="post" action="">
+            <?php wp_nonce_field('gds_content_translation_block_rules'); ?>
+            <p>
+                <button type="submit" name="gds_ct_block_rules_check" value="1" class="button"><?php echo esc_html($check === null ? __('Check block texts', 'gds-content-translation') : __('Check again', 'gds-content-translation')); ?></button>
+                <?php if ($check !== null) { ?>
+                    <span class="description"><?php echo esc_html(sprintf(
+                        /* translators: %s: date and time */
+                        __('Last checked %s.', 'gds-content-translation'),
+                        wp_date((string) get_option('date_format').' '.(string) get_option('time_format'), $check['checkedAt'])
+                    )); ?></span>
+                <?php } ?>
+            </p>
+        </form>
+        <?php
     }
 
     public function renderPage(): void
@@ -260,7 +330,7 @@ class Settings
                         <tr>
                             <th scope="row"><label for="gds-ct-audit-instructions"><?php echo esc_html__('Instructions for the AI review', 'gds-content-translation'); ?></label></th>
                             <td>
-                                <textarea id="gds-ct-audit-instructions" name="gds_ct_audit_instructions" class="large-text" rows="6" maxlength="<?php echo esc_attr((string) TranslationAudit::instructionsMax); ?>" placeholder="<?php echo esc_attr__('For example: “Braces” is always “väggstag” in Swedish. Product names such as Hammer Down stay in English. Use informal “du”.', 'gds-content-translation'); ?>"><?php echo esc_textarea($audit['instructions']); ?></textarea>
+                                <textarea id="gds-ct-audit-instructions" name="gds_ct_audit_instructions" class="large-text" rows="6" maxlength="<?php echo esc_attr((string) TranslationAudit::instructionsMax); ?>" placeholder="<?php echo esc_attr__('For example: “Read more” is always “Läs mer” in Swedish. Brand and product names stay as they are. Use a formal tone.', 'gds-content-translation'); ?>"><?php echo esc_textarea($audit['instructions']); ?></textarea>
                                 <p class="description"><?php echo esc_html__('Sent with every review: required terms, names that stay untranslated, tone. The review reports a translation that does not follow them, and its suggestions follow them. Instructions for one translation can be added when starting it.', 'gds-content-translation'); ?></p>
                             </td>
                         </tr>
@@ -269,6 +339,8 @@ class Settings
 
                 <?php submit_button(__('Save settings', 'gds-content-translation'), 'primary', 'gds_ct_settings_submit'); ?>
             </form>
+
+            <?php $this->renderBlockRules(); ?>
 
             <p>
                 <a href="<?php echo esc_url(Admin::getPageUrl()); ?>"><?php echo esc_html__('← Back to Content translation status', 'gds-content-translation'); ?></a>

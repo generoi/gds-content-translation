@@ -1,22 +1,25 @@
 /**
- * The row and bulk actions: AI translation, AI review, proof read on and
- * off, and Trash all. Each asks first in a modal that says how many
+ * The row and bulk actions: AI translation, AI review, the page check,
+ * proof read on and off, and Trash all. Each asks first in a modal that says how many
  * translations it touches, and runs through POST /actions/{id}, which checks
  * every post again.
  */
-import { Button, CheckboxControl, Flex, Notice, RadioControl } from '@wordpress/components';
-import { useState } from '@wordpress/element';
+import { Button, CheckboxControl, Flex, Notice, RadioControl, Spinner } from '@wordpress/components';
+import { useEffect, useState } from '@wordpress/element';
 import { __, _n, sprintf } from '@wordpress/i18n';
+import { errorMessage } from '../api';
 import type { Action, RenderModalProps } from '../dataviews';
 import type { ScreenContextValue } from '../list/screen-context';
 
 /** What the actions need from the screen; all stable, so the actions are built once. */
 export type ActionOps = Pick< ScreenContextValue, 'run' | 'refresh' | 'followJobs' >;
-import { getSettings, translationLanguages } from '../settings';
+import { defaultLanguage, getSettings, translationLanguages } from '../settings';
 import type { Followup, Settings } from '../settings';
 import type { Cell, Row } from '../types';
 import { notifySuccess } from '../ui/notify';
 import { FollowupRadios, GlossaryNote, InstructionsField } from '../ui/followup';
+import { costLines } from '../scan/cost';
+import type { CostFigures } from '../scan/cost';
 
 /** Above this many new translations, the modal asks for an explicit yes. */
 export const CONFIRM_TRANSLATE_OVER = 10;
@@ -175,6 +178,183 @@ function LanguageModal( { items, closeModal, onActionPerformed, mode, screen }: 
 	);
 }
 
+/** Rows per estimate request: each of their pages is fetched while the request waits. */
+const SCAN_ESTIMATE_CHUNK = 5;
+
+function canScan( row: Row, slug: string ): boolean {
+	const cell = row.languages[ slug ];
+
+	return cell?.state === 'translated' && !! cell.viewUrl && cell.scan?.status !== 'queued' && cell.scan?.status !== 'running';
+}
+
+interface ScanTotals extends CostFigures {
+	pages: number;
+	failed: number;
+	errors: string[];
+}
+
+/**
+ * Check the pages of the selected translations. Their pages are read first,
+ * a few rows at a time, for the total of what the check costs; nothing goes
+ * to Claude before the editor says yes. The checks then run in the
+ * background, one page at a time.
+ */
+function PageScanModal( { items, closeModal, onActionPerformed, screen }: RenderModalProps< Row > & { screen: ActionOps } ) {
+	const languages = translationLanguages();
+	const source = defaultLanguage()?.name ?? '';
+	const [ choice, setChoice ] = useState( 'all' );
+	const [ totals, setTotals ] = useState< ScanTotals | null >( null );
+	const [ progress, setProgress ] = useState( 0 );
+	const [ isBusy, setIsBusy ] = useState( false );
+	const [ estimateFailed, setEstimateFailed ] = useState( '' );
+	const [ attempt, setAttempt ] = useState( 0 );
+	const slugs = choice === 'all' ? languages.map( ( language ) => language.slug ) : [ choice ];
+	const rows = items.filter( ( row ) => slugs.some( ( slug ) => canScan( row, slug ) ) );
+	const pages = rows.reduce( ( sum, row ) => sum + slugs.filter( ( slug ) => canScan( row, slug ) ).length, 0 );
+	const rowKey = rows.map( ( row ) => row.sourceId ).join( ',' );
+
+	// Read the pages for the estimate, one request at a time, again when the languages change.
+	useEffect( () => {
+		let current = true;
+		const sum: ScanTotals = { pages: 0, texts: 0, characters: 0, tokens: 0, outputTokens: 0, price: 0, failed: 0, errors: [] };
+
+		setTotals( null );
+		setProgress( 0 );
+		setEstimateFailed( '' );
+
+		void ( async () => {
+			for ( let start = 0; start < rows.length && current; start += SCAN_ESTIMATE_CHUNK ) {
+				const chunk = rows.slice( start, start + SCAN_ESTIMATE_CHUNK );
+
+				try {
+					const response = await screen.run( 'page-scan', chunk.map( ( row ) => row.sourceId ), { languages: slugs, estimate: true } );
+
+					for ( const result of response.results ) {
+						if ( result.ok ) {
+							for ( const key of [ 'pages', 'texts', 'characters', 'tokens', 'outputTokens', 'price', 'failed' ] as const ) {
+								sum[ key ] += Number( result[ key ] ?? 0 );
+							}
+
+							sum.modelLabel = typeof result.modelLabel === 'string' ? result.modelLabel : sum.modelLabel;
+							sum.errors.push( ...( Array.isArray( result.errors ) ? result.errors.map( String ) : [] ) );
+						}
+					}
+				} catch ( caught: unknown ) {
+					// Said in the dialog, with Retry: not a spinner for good.
+					if ( current ) {
+						setEstimateFailed( errorMessage( caught, __( 'The pages could not be read for the estimate.', 'gds-content-translation' ) ) );
+					}
+
+					return;
+				}
+
+				if ( current ) {
+					setProgress( Math.min( rows.length, start + SCAN_ESTIMATE_CHUNK ) );
+				}
+			}
+
+			if ( current ) {
+				setTotals( { ...sum, errors: [ ...new Set( sum.errors ) ] } );
+			}
+		} )();
+
+		return () => {
+			current = false;
+		};
+		// The rows and languages, by value: the selection's array is new on each render.
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [ choice, rowKey, attempt ] );
+
+	const options = [
+		/* translators: %d: number of translations */
+		{ value: 'all', label: sprintf( __( 'All languages (%d)', 'gds-content-translation' ), items.reduce( ( sum, row ) => sum + languages.filter( ( language ) => canScan( row, language.slug ) ).length, 0 ) ) },
+		...languages.filter( ( language ) => items.some( ( row ) => canScan( row, language.slug ) ) ).map( ( language ) => ( {
+			value: language.slug,
+			/* translators: 1: language name, 2: number of translations */
+			label: sprintf( __( '%1$s (%2$d)', 'gds-content-translation' ), language.name, items.filter( ( row ) => canScan( row, language.slug ) ).length ),
+		} ) ),
+	];
+
+	const submit = () => {
+		setIsBusy( true );
+		screen
+			.run( 'page-scan', rows.map( ( row ) => row.sourceId ), { languages: slugs } )
+			.then( ( response ) => {
+				if ( response.results.some( ( result ) => result.ok ) ) {
+					notifySuccess( response.message );
+				}
+
+				screen.refresh( true );
+				onActionPerformed?.( items );
+				closeModal?.();
+			} )
+			.catch( () => setIsBusy( false ) );
+	};
+
+	return (
+		<div className="gds-ct__modal">
+			<p>
+				{ sprintf(
+					/* translators: %s: language name of the original, e.g. Finnish */
+					__( 'Reads each translation’s page as a visitor gets it, the theme’s header and footer, menus and image alt texts included, and has AI list what is still in %s or another language. The pages are checked in the background, one at a time.', 'gds-content-translation' ),
+					source
+				) }
+			</p>
+			{ options.length > 2 && (
+				<RadioControl label={ __( 'Languages', 'gds-content-translation' ) } selected={ choice } options={ options } onChange={ ( value: string ) => setChoice( value ) } />
+			) }
+			{ estimateFailed && (
+				<Notice status="error" isDismissible={ false } actions={ [ { label: __( 'Try again', 'gds-content-translation' ), onClick: () => setAttempt( ( count ) => count + 1 ) } ] }>
+					{ estimateFailed }
+				</Notice>
+			) }
+			{ pages > 0 && ! totals && ! estimateFailed && (
+				<p className="gds-ct-media__job">
+					<Spinner />
+					{ sprintf(
+						/* translators: 1: rows read, 2: all rows */
+						__( 'Reading the pages for the estimate: %1$d of %2$d…', 'gds-content-translation' ),
+						progress,
+						rows.length
+					) }
+				</p>
+			) }
+			{ totals && totals.pages > 0 && (
+				<Notice status="info" isDismissible={ false }>
+					{ costLines( totals, totals.pages ).map( ( line ) => (
+						<p key={ line }>{ line }</p>
+					) ) }
+				</Notice>
+			) }
+			{ totals && totals.failed > 0 && (
+				<Notice status="warning" isDismissible={ false }>
+					<p>
+						{ sprintf(
+							/* translators: 1: number of pages, 2: error message */
+							_n( '%1$d page could not be read: %2$s', '%1$d pages could not be read: %2$s', totals.failed, 'gds-content-translation' ),
+							totals.failed,
+							totals.errors.join( ' ' )
+						) }
+					</p>
+				</Notice>
+			) }
+			{ pages === 0 && <p className="gds-ct__modal-empty">{ __( 'Nothing to check for the selected rows in these languages.', 'gds-content-translation' ) }</p> }
+			<Flex justify="flex-end" className="gds-ct__modal-buttons">
+				<Button variant="tertiary" onClick={ closeModal } disabled={ isBusy }>
+					{ __( 'Cancel', 'gds-content-translation' ) }
+				</Button>
+				<Button variant="primary" onClick={ submit } isBusy={ isBusy } disabled={ isBusy || ! totals || totals.pages === 0 } accessibleWhenDisabled>
+					{ sprintf(
+						/* translators: %d: number of pages */
+						_n( 'Check %d page', 'Check %d pages', totals?.pages ?? pages, 'gds-content-translation' ),
+						totals?.pages ?? pages
+					) }
+				</Button>
+			</Flex>
+		</div>
+	);
+}
+
 function TrashModal( { items, closeModal, onActionPerformed, screen }: RenderModalProps< Row > & { screen: ActionOps } ) {
 	const [ isBusy, setIsBusy ] = useState( false );
 	const translations = items.reduce( ( sum, row ) => sum + row.translationCount, 0 );
@@ -286,6 +466,19 @@ export function buildActions( settings: Settings, screen: ActionOps ): Action< R
 
 	if ( settings.review ) {
 		actions.push( languageAction( 'review', 'ai-review', __( 'Run AI review…', 'gds-content-translation' ), __( 'Run AI review', 'gds-content-translation' ) ) );
+	}
+
+	if ( settings.review ) {
+		actions.push( {
+			id: 'page-scan',
+			/* translators: %s: language name of the original, e.g. Finnish */
+			label: sprintf( __( 'Check the pages for %s…', 'gds-content-translation' ), defaultLanguage( settings )?.name ?? '' ),
+			/* translators: %s: language name of the original, e.g. Finnish */
+			modalHeader: sprintf( __( 'Check the pages for %s', 'gds-content-translation' ), defaultLanguage( settings )?.name ?? '' ),
+			supportsBulk: true,
+			isEligible: ( row ) => slugs.some( ( slug ) => canScan( row, slug ) ),
+			RenderModal: ( props ) => <PageScanModal { ...props } screen={ screen } />,
+		} );
 	}
 
 	actions.push(

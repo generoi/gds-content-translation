@@ -78,6 +78,10 @@ final class AuditReview
         } elseif (function_exists('wp_check_post_lock') && wp_check_post_lock($postId)) {
             // The review adds notes to the content, which an open editor would overwrite.
             Notice::flash('error', __('Someone has this translation open in the editor. Run the review when it is closed.', 'gds-content-translation'));
+        } elseif ((TranslationAudit::statuses([$postId])[$postId]['status'] ?? '') === 'pending') {
+            // A second run would add its notes next to the first one's. One
+            // that is stuck can be run again.
+            Notice::flash('error', __('The AI review of this translation is already running. Wait for it to finish.', 'gds-content-translation'));
         } else {
             TranslationAudit::queue($postId);
         }
@@ -139,8 +143,8 @@ final class AuditReview
         foreach ((array) $review['segments'] as $segment) {
             $base = [
                 'segment' => (int) $segment['id'],
-                // An ACF field says which one.
-                'label' => (string) ($segment['label'] ?? ''),
+                // A field says which one: ACF's label, or the title's, the excerpt's or an SEO field's.
+                'label' => TranslationAudit::segmentLabel($segment),
                 'source' => TranslationAudit::displayText(wp_kses_post($segment['source'])),
                 'translation' => TranslationAudit::displayText(wp_kses_post($segment['translation'])),
                 // What Edit… starts from, nested blocks' placeholders included.
@@ -159,6 +163,8 @@ final class AuditReview
                     'issue' => (string) $remark['issue'],
                     'suggestion' => $suggestion,
                     'suggestionDiff' => $suggestion !== '' ? TranslationAudit::displayText(TextDiff::render((string) $segment['translation'], $suggestion)) : '',
+                    // Shown as it is when the texts are too long to compare.
+                    'suggestionText' => TranslationAudit::displayText(wp_kses_post($suggestion)),
                     'state' => (string) ($remark['state'] ?? 'open'),
                     'stateLabel' => ($remark['state'] ?? 'open') !== 'open' ? self::stateLabel($remark) : '',
                 ];
@@ -174,6 +180,7 @@ final class AuditReview
                     'issue' => '',
                     'suggestion' => '',
                     'suggestionDiff' => '',
+                    'suggestionText' => '',
                     'state' => 'none',
                     'stateLabel' => '',
                 ];
@@ -348,7 +355,7 @@ final class AuditReview
     private static function renderDone(int $postId, \WP_Post $post, array $review, array $status, array $openCounts): void
     {
         $openTotal = array_sum($openCounts);
-        $edited = $status['contentHash'] !== '' && TranslationAudit::contentHash($postId) !== $status['contentHash'];
+        $edited = TranslationAudit::editedSince($postId, $status['contentHash']);
         $proofread = (bool) get_post_meta($postId, GDS_CONTENT_TRANSLATION_META_KEY, true);
 
         ?>
@@ -410,6 +417,8 @@ final class AuditReview
 
         <?php self::renderMediaRoot($postId); ?>
 
+        <?php self::renderScanRoot($postId, $post); ?>
+
         <div class="gds-content-translation-review__more">
             <details class="gds-content-translation-review__about">
                 <summary><?php echo esc_html__('About this review', 'gds-content-translation'); ?></summary>
@@ -441,7 +450,7 @@ final class AuditReview
                         <?php
                         echo esc_html(sprintf(
                             /* translators: 1: date and time, 2: model name */
-                            __('Reviewed %1$s by %2$s. Checks the content and the ACF text fields, not the title or excerpt.', 'gds-content-translation'),
+                            __('Reviewed %1$s by %2$s. Checks the content, the title, the excerpt, the ACF text fields and the Yoast SEO texts.', 'gds-content-translation'),
                             wp_date(get_option('date_format').' '.get_option('time_format'), (int) ($review['createdAt'] ?? 0)),
                             TranslationAudit::models()[$review['model'] ?? ''] ?? ($review['model'] ?? '')
                         ));
@@ -462,7 +471,6 @@ final class AuditReview
                     <?php } ?>
                 </div>
             </details>
-            <?php self::renderLinks($post); ?>
         </div>
 
         <?php if ($review['segments'] !== []) { ?>
@@ -503,6 +511,29 @@ final class AuditReview
     }
 
     /**
+     * Where the script shows the check of the page for text still in the
+     * original's language ({@see PageScan}, resources/scan): what the review
+     * cannot see, the theme's header and footer, menus, image alts.
+     */
+    private static function renderScanRoot(int $postId, \WP_Post $post): void
+    {
+        if (! is_post_type_viewable($post->post_type) || (! PageScan::isAvailable() && ! PageScan::get($postId))) {
+            return;
+        }
+
+        $default = PLL()->model->get_language((string) pll_default_language('slug'));
+
+        ?>
+        <div
+            id="gds-ct-scan-root"
+            class="gds-content-translation-review__scan-root"
+            data-post-id="<?php echo esc_attr((string) $postId); ?>"
+            data-source="<?php echo esc_attr($default ? StatusList::languageName($default) : ''); ?>"
+        ></div>
+        <?php
+    }
+
+    /**
      * Under the proofread checkbox; the script says the same as it changes.
      */
     private static function proofreadHint(int $errors): string
@@ -523,130 +554,6 @@ final class AuditReview
             _n('Run the review again? Its %d open remark is replaced by the new review’s remarks.', 'Run the review again? Its %d open remarks are replaced by the new review’s remarks.', $openTotal, 'gds-content-translation'),
             $openTotal
         );
-    }
-
-    /**
-     * Internal links that still lead to the original language, because the
-     * page they point to has no translation yet. They switch by themselves
-     * once it has one; until then, offer to create it.
-     */
-    private static function renderLinks(\WP_Post $post): void
-    {
-        $language = PLL()->model->post->get_language($post->ID);
-
-        if (! $language || ! preg_match_all('/href="([^"#][^"]*)"/', $post->post_content, $matches)) {
-            return;
-        }
-
-        $missing = [];
-
-        foreach (array_unique($matches[1]) as $href) {
-            // The site's own address: Polylang turns home_url() into the
-            // admin's language (…/en), where the original's path is no page.
-            $home = untrailingslashit((string) get_option('home'));
-            $url = str_starts_with($href, '/') ? $home.$href : $href;
-
-            if (! str_starts_with($url, $home)) {
-                continue;
-            }
-
-            $targetId = self::postIdOfUrl($url);
-
-            if ($targetId <= 0 || $targetId === $post->ID || ! pll_is_translated_post_type(get_post_type($targetId))) {
-                continue;
-            }
-
-            $translations = pll_get_post_translations($targetId);
-
-            if (isset($translations[$language->slug]) && get_post_status($translations[$language->slug]) !== 'trash') {
-                continue;
-            }
-
-            $default = pll_default_language('slug');
-            $missing[$targetId] = [
-                'href' => $href,
-                'sourceId' => (int) ($translations[$default] ?? $targetId),
-            ];
-        }
-
-        if ($missing === []) {
-            return;
-        }
-
-        $canTranslate = MachineTranslation::isAvailable();
-        $languageName = StatusList::languageName($language);
-        $default = PLL()->model->get_language((string) pll_default_language('slug'));
-        $sourceName = $default ? StatusList::languageName($default) : '';
-
-        ?>
-        <details class="gds-content-translation-review__links">
-            <summary><?php echo esc_html(sprintf(
-                /* translators: 1: number of links, 2: language name of the original, e.g. Finnish */
-                _n('%1$d link leads to a %2$s page', '%1$d links lead to %2$s pages', count($missing), 'gds-content-translation'),
-                count($missing),
-                $sourceName
-            )); ?></summary>
-            <div class="gds-content-translation-review__details">
-            <p class="description"><?php echo esc_html(sprintf(
-                /* translators: 1: language name of the translation, e.g. English */
-                __('These pages have no %1$s version yet. Once one is created, the links on this page go to it by themselves; nothing needs to be edited.', 'gds-content-translation'),
-                $languageName
-            )); ?></p>
-            <ul class="gds-content-translation-review__links-list">
-                <?php foreach ($missing as $link) { ?>
-                    <li data-gds-ct-link-row>
-                        <span class="gds-content-translation-review__link-title" title="<?php echo esc_attr($link['href']); ?>"><?php echo esc_html(get_the_title($link['sourceId'])); ?></span>
-                        <?php if ($canTranslate) { ?>
-                            <?php // AI translates the page in the background, the way the status screen does; this row follows it.?>
-                            <button
-                                type="button"
-                                class="button button-small gds-content-translation-review__link-translate"
-                                data-source-id="<?php echo esc_attr((string) $link['sourceId']); ?>"
-                                data-lang="<?php echo esc_attr($language->slug); ?>"
-                                data-language-name="<?php echo esc_attr($languageName); ?>"
-                            >
-                                <?php echo esc_html(sprintf(
-                                    /* translators: %s: language name */
-                                    __('Translate into %s', 'gds-content-translation'),
-                                    $languageName
-                                )); ?>
-                                <span class="screen-reader-text"><?php echo esc_html(get_the_title($link['sourceId'])); ?></span>
-                            </button>
-                        <?php } ?>
-                        <span class="gds-content-translation-review__link-status" role="status"></span>
-                    </li>
-                <?php } ?>
-            </ul>
-            </div>
-        </details>
-        <?php
-    }
-
-    /**
-     * The post an internal URL points to, whatever language the admin bar
-     * filters the admin by: with "English" chosen there, url_to_postid()
-     * looks only among English posts and finds no Finnish page.
-     */
-    private static function postIdOfUrl(string $url): int
-    {
-        $polylang = PLL();
-        $current = $polylang->curlang ?? null;
-        $filter = property_exists($polylang, 'filter_lang') ? $polylang->filter_lang : null;
-        $polylang->curlang = null;
-
-        if (property_exists($polylang, 'filter_lang')) {
-            $polylang->filter_lang = null;
-        }
-
-        try {
-            return (int) url_to_postid($url);
-        } finally {
-            $polylang->curlang = $current;
-
-            if (property_exists($polylang, 'filter_lang')) {
-                $polylang->filter_lang = $filter;
-            }
-        }
     }
 
     /**

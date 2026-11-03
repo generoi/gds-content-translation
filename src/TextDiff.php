@@ -10,19 +10,53 @@ if (! defined('ABSPATH')) {
  * Word-level difference between two short texts, as HTML with the removed
  * words in <del> and the added ones in <ins>.
  *
- * Compares the visible text (tags removed), which is what a translator reads;
- * segments are a sentence or a paragraph, so a plain longest-common-
- * subsequence table is small enough.
+ * Compares the visible text (tags removed), which is what a translator reads.
+ * The words both texts start and end with are left out of the comparison,
+ * and what remains goes into a plain longest-common-subsequence table, as
+ * long as that table stays small: a long text rewritten throughout gets no
+ * difference, and the review page shows the suggestion as it is.
  */
 final class TextDiff
 {
+    /** Most cells of the comparison table, one per pair of changed words, spaces and punctuation. */
+    public const maxCells = 250000;
+
+    /**
+     * @return string The HTML, or '' when the texts are too long and too different to compare.
+     */
     public static function render(string $from, string $to): string
     {
         $old = self::tokens($from);
         $new = self::tokens($to);
+
+        // The same start and end need no table.
+        $prefix = 0;
+
+        while ($prefix < count($old) && $prefix < count($new) && $old[$prefix] === $new[$prefix]) {
+            $prefix++;
+        }
+
+        $suffix = 0;
+
+        while ($suffix < count($old) - $prefix && $suffix < count($new) - $prefix && $old[count($old) - 1 - $suffix] === $new[count($new) - 1 - $suffix]) {
+            $suffix++;
+        }
+
+        $oldMiddle = array_slice($old, $prefix, count($old) - $prefix - $suffix);
+        $newMiddle = array_slice($new, $prefix, count($new) - $prefix - $suffix);
+
+        if ((count($oldMiddle) + 1) * (count($newMiddle) + 1) > self::maxCells) {
+            return '';
+        }
+
+        $operations = array_merge(
+            array_map(static fn (string $token): array => ['same', $token], array_slice($old, 0, $prefix)),
+            self::operations($oldMiddle, $newMiddle),
+            array_map(static fn (string $token): array => ['same', $token], array_slice($old, count($old) - $suffix))
+        );
         $html = '';
 
-        foreach (self::operations($old, $new) as [$type, $token]) {
+        foreach ($operations as [$type, $token]) {
             $escaped = esc_html($token);
             $html .= match ($type) {
                 'del' => trim($token) === '' ? $escaped : '<del>'.$escaped.'</del>',

@@ -336,8 +336,8 @@ final class Glossary
 
     /**
      * An approved term replaces the other approved translations of its
-     * source: accepting a suggestion that says "väggstag, not stöd" rejects
-     * "stöd".
+     * source: accepting a suggestion that says "offertförfrågan, not offert"
+     * rejects "offert".
      */
     private static function retireOthers(int $id): void
     {
@@ -593,7 +593,7 @@ final class Glossary
     /**
      * The approved terms of a language pair whose source term is in the text:
      * the glossary of one page for the AI review. Whole words, any case;
-     * longer terms first, as "wall brace kit" says more than "wall brace".
+     * longer terms first, as "price list file" says more than "price list".
      *
      * @return list<array{source: string, target: string, note?: string}>
      */
@@ -636,6 +636,46 @@ final class Glossary
         }
 
         return array_values($terms);
+    }
+
+    /**
+     * The approved translations of a language pair that appear in a text in
+     * the target language (whole words, any case), longest first: terms the
+     * site wants exactly so, which a check of the page leaves as they are.
+     *
+     * @return list<string>
+     */
+    public static function targetTermsIn(string $text, string $sourceLang, string $targetLang): array
+    {
+        global $wpdb;
+
+        $text = html_entity_decode(wp_strip_all_tags($text), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+
+        if (trim($text) === '') {
+            return [];
+        }
+
+        $rows = $wpdb->get_col($wpdb->prepare(
+            'SELECT DISTINCT target_term FROM '.self::table().' WHERE source_lang = %s AND target_lang = %s AND status = %s ORDER BY CHAR_LENGTH(target_term) DESC',
+            $sourceLang,
+            $targetLang,
+            'approved'
+        ));
+        $terms = [];
+
+        foreach ((array) $rows as $term) {
+            $term = (string) $term;
+
+            if ($term !== '' && preg_match('/(?<![\p{L}\p{N}])'.preg_quote($term, '/').'(?![\p{L}\p{N}])/iu', $text) === 1) {
+                $terms[] = $term;
+            }
+
+            if (count($terms) >= self::reviewMax) {
+                break;
+            }
+        }
+
+        return $terms;
     }
 
     /**
