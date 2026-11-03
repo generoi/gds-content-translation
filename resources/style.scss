@@ -1752,3 +1752,113 @@ $chip: 22px;
 		}
 	}
 }
+
+// Polylang → String translations: a button per language, a tab per part
+// (texts, URL slugs, image alt texts), and the table to translate in.
+.gds-ct-strings {
+	&__languages {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 8px;
+		margin: 12px 0;
+
+		.gds-ct-glossary__count {
+			margin-left: 6px;
+		}
+	}
+
+	&__table .dataviews-view-table td {
+		height: auto;
+		min-height: $row;
+		padding-top: 6px;
+		padding-bottom: 6px;
+		vertical-align: top;
+		white-space: normal;
+	}
+
+	&__source,
+	&__image > span {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+		min-width: 0;
+	}
+
+	&__context,
+	&__original {
+		color: #50575e;
+		font-size: 12px;
+		overflow-wrap: anywhere;
+	}
+
+	&__text {
+		color: #1d2327;
+		white-space: pre-wrap;
+		overflow-wrap: anywhere;
+	}
+
+	&__translation {
+		min-width: 12rem;
+
+		textarea {
+			width: 100%;
+		}
+	}
+
+	&__status {
+		font-size: 12px;
+
+		&.is-missing {
+			color: #b32d2e;
+			font-weight: 600;
+		}
+
+		&.is-remark {
+			color: #996800;
+		}
+
+		&.is-kept {
+			color: #50575e;
+		}
+	}
+
+	&__image {
+		display: flex;
+		align-items: flex-start;
+		gap: 8px;
+
+		img {
+			flex: none;
+			object-fit: cover;
+			border-radius: 2px;
+		}
+	}
+
+	&__slugs .components-notice {
+		margin: 12px 0;
+	}
+
+	&__slug-table {
+		tr.is-changed td {
+			background: #fcf9e8;
+		}
+
+		td {
+			vertical-align: middle;
+		}
+	}
+
+	&__changes {
+		margin-left: 1.5em;
+		list-style: disc;
+	}
+}
+
+// An image's alt text in the translation's language, in the files list.
+.gds-ct-media__alt {
+	margin-top: 6px;
+
+	.gds-ct-media__actions {
+		margin-top: 4px;
+	}
+}

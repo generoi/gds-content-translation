@@ -104,6 +104,11 @@ final class MediaActions
                 }
             }
 
+            // Polylang does not translate media: the image's alt text in this language.
+            if (in_array($item['kind'], ['image', 'svg'], true) && $attachmentId > 0 && $language && ImageAlt::isActive() && ImageAlt::isImage($attachmentId)) {
+                $item['alt'] = ['source' => ImageAlt::libraryAlt($attachmentId), 'translation' => ImageAlt::get($attachmentId, $language->slug)];
+            }
+
             $item['actions'] = $actions;
             $items[$index] = $item;
         }

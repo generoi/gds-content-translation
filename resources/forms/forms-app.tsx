@@ -4,7 +4,9 @@
  * translate (DeepL), check (AI review) and edit. The form and language are
  * in the address (`&form=1&form_lang=en`, not `lang`, which is
  * Polylang's filter of the admin), so the list of files still in the
- * original's language links straight to a form.
+ * original's language links straight to a form. Unsaved translations are
+ * kept for the browser tab, per form and language, so the browser's Back
+ * or a reload does not lose them.
  */
 import { Button, Flex, Notice, Spinner, TextareaControl } from '@wordpress/components';
 import { useEffect, useMemo, useState } from '@wordpress/element';
@@ -17,6 +19,33 @@ import { Notices } from '../ui/notices';
 import { notifyError, notifySuccess } from '../ui/notify';
 import { fetchFormRows, fetchForms, formOperation, saveForm } from './api';
 import type { FormRows, FormSummary } from './types';
+
+const DRAFTS_KEY = 'gds-content-translation:form-drafts';
+
+/** The unsaved translations of a form in a language; storage may be unavailable (private mode). */
+function readDrafts( formId: number, lang: string ): Record< string, string > {
+	try {
+		const stored: unknown = JSON.parse( window.sessionStorage.getItem( `${ DRAFTS_KEY }:${ formId }:${ lang }` ) || '{}' );
+
+		return stored && typeof stored === 'object' ? Object.fromEntries( Object.entries( stored ).filter( ( [ , value ] ) => typeof value === 'string' ) ) : {};
+	} catch {
+		return {};
+	}
+}
+
+function writeDrafts( formId: number, lang: string, drafts: Record< string, string > ): void {
+	try {
+		const key = `${ DRAFTS_KEY }:${ formId }:${ lang }`;
+
+		if ( Object.keys( drafts ).length ) {
+			window.sessionStorage.setItem( key, JSON.stringify( drafts ) );
+		} else {
+			window.sessionStorage.removeItem( key );
+		}
+	} catch {
+		// Full or unavailable: the drafts are only kept while the editor is open.
+	}
+}
 
 function screenUrl( formId = 0, lang = '' ): string {
 	const base = getSettings().forms?.url ?? window.location.href;
@@ -112,9 +141,13 @@ function Overview( { onOpen }: { onOpen: ( formId: number, lang: string ) => voi
 function Editor( { formId, lang, onBack }: { formId: number; lang: string; onBack: () => void } ) {
 	const [ data, setData ] = useState< FormRows | null >( null );
 	const [ failed, setFailed ] = useState( '' );
-	const [ drafts, setDrafts ] = useState< Record< string, string > >( {} );
+	const [ drafts, setDrafts ] = useState< Record< string, string > >( () => readDrafts( formId, lang ) );
+	const [ restored, setRestored ] = useState( () => Object.keys( drafts ).length > 0 );
 	const [ busy, setBusy ] = useState< '' | 'save' | 'translate' | 'review' | string >( '' );
 	const source = defaultLanguage()?.name ?? '';
+
+	// Kept for the tab: Back to the list and forward again finds them.
+	useEffect( () => writeDrafts( formId, lang, drafts ), [ formId, lang, drafts ] );
 
 	useEffect( () => {
 		fetchFormRows( formId, lang )
@@ -169,6 +202,8 @@ function Editor( { formId, lang, onBack }: { formId: number; lang: string; onBac
 
 	const back = () => {
 		if ( dirty.length === 0 || window.confirm( __( 'Leave without saving your changes?', 'gds-content-translation' ) ) ) {
+			// Left on purpose: the changes go.
+			writeDrafts( formId, lang, {} );
 			onBack();
 		}
 	};
@@ -246,6 +281,15 @@ function Editor( { formId, lang, onBack }: { formId: number; lang: string; onBac
 					{ __( 'Edit the form', 'gds-content-translation' ) }
 				</a>
 			</Flex>
+			{ restored && dirty.length > 0 && (
+				<Notice status="info" onRemove={ () => setRestored( false ) } actions={ [ { label: __( 'Discard them', 'gds-content-translation' ), onClick: () => { setDrafts( {} ); setRestored( false ); } } ] }>
+					{ sprintf(
+						/* translators: %d: number of unsaved texts */
+						_n( '%d unsaved change from before is back. Save it, or discard it.', '%d unsaved changes from before are back. Save them, or discard them.', dirty.length, 'gds-content-translation' ),
+						dirty.length
+					) }
+				</Notice>
+			) }
 			{ remarks > 0 && (
 				<p className="gds-ct-forms__summary">
 					{ sprintf(

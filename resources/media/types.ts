@@ -72,6 +72,8 @@ export interface MediaItem {
 	/** A placeholder: the original's texts with it; `inSource` when only the original has it. */
 	sourceTexts?: string[];
 	inSource?: boolean;
+	/** Polylang does not translate media: the image's alt text, the media library's and the translation language's. */
+	alt?: { source: string; translation: string };
 }
 
 export interface DocumentCost {
@@ -99,9 +101,12 @@ export interface MediaData {
 	canCheckImages: boolean;
 	sourceLanguage: string;
 	targetLanguage: string;
+	/** The translation's language slug. */
 	targetSlug: string;
 	/** AI translation is set up, for the linked pages and chosen posts. */
 	canTranslate: boolean;
+	/** DeepL can translate an image's alt text into it. */
+	canTranslateAlts: boolean;
 	editUrl: string;
 	forms: Array< { id: number; title: string } >;
 	documentCost: DocumentCost | null;

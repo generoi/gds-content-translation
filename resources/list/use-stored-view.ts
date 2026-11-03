@@ -4,8 +4,13 @@
  * (sessionStorage), so a reload or a trip to the editor comes back to the
  * same rows. Storage may be unavailable (private mode); the view then
  * simply starts over.
+ *
+ * A link can open the list searched: `&search=…` is read when the screen
+ * opens, for the post type it opens with, and then taken out of the
+ * address, so a reload keeps what the search has become since.
  */
 import { useCallback, useState } from '@wordpress/element';
+import { getQueryArg, removeQueryArgs } from '@wordpress/url';
 import type { View } from '../dataviews';
 import { createDefaultView, languageFieldIds } from './default-view';
 
@@ -57,8 +62,28 @@ export function loadView( postType: string ): View {
 	} as View;
 }
 
+/** The search a link asks for, once. */
+function linkedView( postType: string ): Record< string, View > {
+	const search = getQueryArg( window.location.href, 'search' );
+
+	if ( typeof search !== 'string' ) {
+		return {};
+	}
+
+	const view = { ...loadView( postType ), search, page: 1 };
+	write( 'sessionStorage', postType, { search, filters: view.filters, page: 1 } );
+
+	try {
+		window.history.replaceState( null, '', removeQueryArgs( window.location.href, 'search' ) );
+	} catch {
+		// The address keeps it: no harm, it is read once.
+	}
+
+	return { [ postType ]: view };
+}
+
 export function useStoredView( postType: string ): [ View, ( view: View ) => void, () => void ] {
-	const [ views, setViews ] = useState< Record< string, View > >( {} );
+	const [ views, setViews ] = useState< Record< string, View > >( () => linkedView( postType ) );
 	const view = views[ postType ] ?? loadView( postType );
 
 	const setView = useCallback(

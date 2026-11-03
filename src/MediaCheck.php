@@ -1420,6 +1420,7 @@ final class MediaCheck
             // What "AI translation" of a linked page or chosen post needs.
             'targetSlug' => $language ? $language->slug : '',
             'canTranslate' => MachineTranslation::isAvailable(),
+            'canTranslateAlts' => ImageAlt::isActive() && DeeplApi::isAvailable(),
             'editUrl' => (string) get_edit_post_link($postId, 'raw'),
             // What the choices need: the forms to pick from, what a DeepL document costs.
             'forms' => in_array('replace', $offers, true) && in_array('form', array_column($items, 'kind'), true) ? MediaActions::forms() : [],

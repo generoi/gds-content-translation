@@ -14,6 +14,8 @@ class Admin
 
     public const formsPageSlug = 'mlang_content_translation_forms';
 
+    public const stringsPageSlug = 'mlang_content_translation_strings';
+
     private const exportAction = 'gds_ct_glossary_export';
 
     private const postTypeUserMetaKey = 'content_translation_status_post_type';
@@ -258,6 +260,17 @@ class Admin
             [$this, 'renderGlossaryPage']
         );
 
+        if (StringTranslation::isAvailable()) {
+            add_submenu_page(
+                'mlang',
+                __('String translations', 'gds-content-translation'),
+                __('String translations', 'gds-content-translation'),
+                'manage_options',
+                self::stringsPageSlug,
+                [$this, 'renderStringsPage']
+            );
+        }
+
         if (FormTranslation::isAvailable()) {
             add_submenu_page(
                 'mlang',
@@ -380,7 +393,7 @@ class Admin
 
     public function enqueueAssets(string $hookSuffix): void
     {
-        if ($hookSuffix === 'languages_page_'.self::glossaryPageSlug || $hookSuffix === 'languages_page_'.self::formsPageSlug) {
+        if (in_array($hookSuffix, ['languages_page_'.self::glossaryPageSlug, 'languages_page_'.self::formsPageSlug, 'languages_page_'.self::stringsPageSlug], true)) {
             $this->enqueueApp();
 
             return;
@@ -526,6 +539,13 @@ class Admin
                 'available' => FormTranslation::isAvailable(),
                 'url' => admin_url('admin.php?page='.self::formsPageSlug),
             ],
+            'strings' => [
+                'url' => admin_url('admin.php?page='.self::stringsPageSlug),
+                'polylangUrl' => admin_url('admin.php?page=mlang_strings'),
+                // Polylang does not translate media: an alt text per language.
+                'alts' => ImageAlt::isActive(),
+                'translate' => DeeplApi::isAvailable(),
+            ],
         ];
     }
 
@@ -582,6 +602,24 @@ class Admin
             <div id="gds-ct-glossary-root">
                 <p class="gds-content-translation-app__loading"><span class="spinner is-active" style="float:none;margin:0 8px 0 0"></span><?php echo esc_html__('Loading…', 'gds-content-translation'); ?></p>
                 <noscript><p><?php echo esc_html__('The glossary needs JavaScript.', 'gds-content-translation'); ?></p></noscript>
+            </div>
+        </div>
+        <?php
+    }
+
+    public function renderStringsPage(): void
+    {
+        if (! current_user_can('manage_options')) {
+            return;
+        }
+
+        ?>
+        <div class="wrap gds-content-translation-app">
+            <h1 class="wp-heading-inline"><?php echo esc_html__('String translations', 'gds-content-translation'); ?></h1>
+            <hr class="wp-header-end">
+            <div id="gds-ct-strings-root">
+                <p class="gds-content-translation-app__loading"><span class="spinner is-active" style="float:none;margin:0 8px 0 0"></span><?php echo esc_html__('Loading…', 'gds-content-translation'); ?></p>
+                <noscript><p><?php echo esc_html__('String translations need JavaScript.', 'gds-content-translation'); ?></p></noscript>
             </div>
         </div>
         <?php

@@ -18,6 +18,7 @@ import { Button, ExternalLink, Flex, Modal, SelectControl, Spinner, TextControl,
 import { useEffect, useRef, useState } from '@wordpress/element';
 import { __, _n, sprintf } from '@wordpress/i18n';
 import { errorMessage, runAction } from '../api';
+import { saveAlts, translateAlts } from '../strings/api';
 import { notifyError, notifySuccess } from '../ui/notify';
 import { fetchMedia, markMedia, runMediaAction } from './api';
 import { pickMedia } from './pick-media';
@@ -269,6 +270,103 @@ function FormChoice( { item, forms, onSave, onCancel }: { item: MediaItem; forms
 	);
 }
 
+/**
+ * The image's alt text in the translation's language, when Polylang does
+ * not translate media: one image, one media library alt text, in the
+ * original's language, unless the language has its own.
+ */
+function AltText( { item, data }: { item: MediaItem; data: MediaData } ) {
+	const [ alt, setAlt ] = useState( item.alt?.translation ?? '' );
+	const [ editing, setEditing ] = useState< string | null >( null );
+	const [ isBusy, setIsBusy ] = useState( false );
+	const id = item.attachmentId ?? 0;
+
+	if ( ! item.alt || ! id || ! data.targetSlug ) {
+		return null;
+	}
+
+	const done = ( message: string ) => ( result: { alts: Record< string, string > } ) => {
+		setAlt( result.alts[ String( id ) ] ?? alt );
+		setEditing( null );
+		notifySuccess( message );
+	};
+
+	const fail = ( caught: unknown ) => notifyError( errorMessage( caught, __( 'That did not work. Try again.', 'gds-content-translation' ) ) );
+
+	const translate = () => {
+		setIsBusy( true );
+		translateAlts( data.targetSlug, [ id ] )
+			.then( done( __( 'The alt text is translated.', 'gds-content-translation' ) ) )
+			.catch( fail )
+			.finally( () => setIsBusy( false ) );
+	};
+
+	const save = ( value: string ) => {
+		setIsBusy( true );
+		saveAlts( data.targetSlug, { [ String( id ) ]: value } )
+			.then( done( __( 'The alt text is saved.', 'gds-content-translation' ) ) )
+			.catch( fail )
+			.finally( () => setIsBusy( false ) );
+	};
+
+	return (
+		<div className="gds-ct-media__alt">
+			<p className="gds-ct-media__hint">
+				{ alt
+					? sprintf(
+							/* translators: 1: language name, e.g. English, 2: the alt text */
+							__( 'Alt text in %1$s: %2$s', 'gds-content-translation' ),
+							data.targetLanguage,
+							alt
+					  )
+					: sprintf(
+							/* translators: 1: language name, e.g. English, 2: language name of the original, 3: the alt text */
+							__( 'No alt text in %1$s: the %2$s one is shown, “%3$s”.', 'gds-content-translation' ),
+							data.targetLanguage,
+							data.sourceLanguage,
+							item.alt.source
+					  ) }
+			</p>
+			{ editing !== null ? (
+				<form
+					className="gds-ct-media__inline"
+					onSubmit={ ( event ) => {
+						event.preventDefault();
+						save( editing );
+					} }
+				>
+					<TextControl
+						__next40pxDefaultSize
+						__nextHasNoMarginBottom
+						/* translators: %s: language name, e.g. English */
+						label={ sprintf( __( 'Alt text in %s', 'gds-content-translation' ), data.targetLanguage ) }
+						value={ editing }
+						onChange={ setEditing }
+					/>
+					<Button variant="primary" type="submit" isBusy={ isBusy } disabled={ isBusy } accessibleWhenDisabled>
+						{ __( 'Save', 'gds-content-translation' ) }
+					</Button>
+					<Button variant="tertiary" onClick={ () => setEditing( null ) }>
+						{ __( 'Cancel', 'gds-content-translation' ) }
+					</Button>
+				</form>
+			) : (
+				<div className="gds-ct-media__actions">
+					{ ! alt && item.alt.source && data.canTranslateAlts && (
+						<Button variant="secondary" size="compact" isBusy={ isBusy } disabled={ isBusy } accessibleWhenDisabled onClick={ translate }>
+							{ __( 'Translate the alt text', 'gds-content-translation' ) }
+						</Button>
+					) }
+					<Button variant="tertiary" size="compact" disabled={ isBusy } accessibleWhenDisabled onClick={ () => setEditing( alt || item.alt?.source || '' ) }>
+						{ __( 'Edit the alt text…', 'gds-content-translation' ) }
+						<span className="screen-reader-text">{ `: ${ item.title }` }</span>
+					</Button>
+				</div>
+			) }
+		</div>
+	);
+}
+
 interface ItemProps {
 	item: MediaItem;
 	data: MediaData;
@@ -406,6 +504,7 @@ function Item( { item, data, busy, locked, onMark, onAction, queued, onTranslate
 				) }
 				{ ! ok && item.kind === 'query' && !! item.posts?.length && <ChosenPosts posts={ item.posts } data={ data } queued={ queued } disabled={ busy || locked } onTranslate={ onTranslate } /> }
 				{ translated && !! item.labels?.length && <Texts texts={ item.labels.map( ( label ) => label.translation ) } /> }
+				<AltText item={ item } data={ data } />
 
 				{ item.kind === 'form' && form && ! ok && (
 					<p className="gds-ct-media__hint">

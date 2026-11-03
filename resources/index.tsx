@@ -2,8 +2,8 @@
  * Content translation status (Polylang → Content translation status): the
  * list screen; on the AI review page, whose other parts are server-rendered,
  * the table of remarks, the list of files still in the original's language
- * and the check of the page; the Translation glossary screen and Form
- * translations.
+ * and the check of the page; the Translation glossary screen, Form
+ * translations and String translations.
  */
 import domReady from '@wordpress/dom-ready';
 import { createRoot } from '@wordpress/element';
@@ -13,6 +13,7 @@ import { GlossaryApp } from './glossary/glossary-app';
 import { MediaPanel } from './media/media-panel';
 import { ReviewApp } from './review/review-app';
 import { ScanPanel } from './scan/scan-panel';
+import { StringsApp } from './strings/strings-app';
 import './style.scss';
 
 domReady( () => {
@@ -44,6 +45,12 @@ domReady( () => {
 
 	if ( forms ) {
 		createRoot( forms ).render( <FormsApp /> );
+	}
+
+	const strings = document.getElementById( 'gds-ct-strings-root' );
+
+	if ( strings ) {
+		createRoot( strings ).render( <StringsApp /> );
 	}
 
 	const glossary = document.getElementById( 'gds-ct-glossary-root' );
