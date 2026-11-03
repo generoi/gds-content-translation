@@ -141,8 +141,10 @@ final class AuditReview
                 'segment' => (int) $segment['id'],
                 // An ACF field says which one.
                 'label' => (string) ($segment['label'] ?? ''),
-                'source' => wp_kses_post($segment['source']),
-                'translation' => wp_kses_post($segment['translation']),
+                'source' => TranslationAudit::displayText(wp_kses_post($segment['source'])),
+                'translation' => TranslationAudit::displayText(wp_kses_post($segment['translation'])),
+                // What Edit… starts from, nested blocks' placeholders included.
+                'text' => (string) $segment['translation'],
                 'changed' => isset($currentById[$segment['id']]) && $currentById[$segment['id']] !== $segment['translation'],
             ];
 
@@ -156,7 +158,7 @@ final class AuditReview
                     'categoryLabel' => self::categoryLabel((string) $remark['category']),
                     'issue' => (string) $remark['issue'],
                     'suggestion' => $suggestion,
-                    'suggestionDiff' => $suggestion !== '' ? TextDiff::render((string) $segment['translation'], $suggestion) : '',
+                    'suggestionDiff' => $suggestion !== '' ? TranslationAudit::displayText(TextDiff::render((string) $segment['translation'], $suggestion)) : '',
                     'state' => (string) ($remark['state'] ?? 'open'),
                     'stateLabel' => ($remark['state'] ?? 'open') !== 'open' ? self::stateLabel($remark) : '',
                 ];

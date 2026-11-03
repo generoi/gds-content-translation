@@ -1012,6 +1012,12 @@ $chip: 22px;
 		}
 	}
 
+	// A nested block inside a text (Polylang's placeholder).
+	&__nested {
+		color: $subtle;
+		font-style: italic;
+	}
+
 	&__remark-head {
 		display: flex;
 		flex-wrap: wrap;
