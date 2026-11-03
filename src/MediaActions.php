@@ -110,6 +110,12 @@ final class MediaActions
             return new WP_Error('gds_ct_media_original_pattern', __('This is in the original’s pattern: translate the pattern first.', 'gds-content-translation'));
         }
 
+        // Only what the list offers for it now: not a paid DeepL draft again
+        // from a tab opened before the file was translated.
+        if (! in_array($action, (array) (self::describe($postId, [$item])[0]['actions'] ?? []), true)) {
+            return new WP_Error('gds_ct_media_action', __('This can no longer be done here. Reload the page.', 'gds-content-translation'));
+        }
+
         $attachmentId = (int) ($item['attachmentId'] ?? 0);
         $value = $args['value'] ?? '';
         $pageId = $postId;

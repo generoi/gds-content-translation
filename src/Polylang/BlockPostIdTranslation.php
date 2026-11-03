@@ -206,16 +206,15 @@ class BlockPostIdTranslation
 
         $objectId = (int) $value;
 
-        if ($objectType === 'post' && function_exists('pll_get_post')) {
-            return (int) pll_get_post($objectId, $languageSlug);
-        }
-
-        if ($objectType === 'attachment' && function_exists('pll_get_post')) {
-            return (int) pll_get_post($objectId, $languageSlug);
+        // An object without a language (media when Polylang does not
+        // translate media, an untranslated post type) is the same in every
+        // language: kept. Only one with a language and no translation goes.
+        if (($objectType === 'post' || $objectType === 'attachment') && function_exists('pll_get_post')) {
+            return pll_get_post_language($objectId) ? (int) pll_get_post($objectId, $languageSlug) : null;
         }
 
         if ($objectType === 'term' && function_exists('pll_get_term')) {
-            return (int) pll_get_term($objectId, $languageSlug);
+            return pll_get_term_language($objectId) ? (int) pll_get_term($objectId, $languageSlug) : null;
         }
 
         return null;

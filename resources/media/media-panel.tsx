@@ -31,7 +31,8 @@ export function MediaPanel( { postId, initialOpen, source }: { postId: number; i
 					<MediaList postId={ postId } onChange={ update } />
 				</div>
 			</details>
-			<Notices />
+			{ /* The review page's remarks show the notices, when it has them. */ }
+			{ ! document.getElementById( 'gds-ct-remarks-root' ) && <Notices /> }
 		</ErrorBoundary>
 	);
 }

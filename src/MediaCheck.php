@@ -799,14 +799,13 @@ final class MediaCheck
         }
 
         $svg = (string) file_get_contents($file);
-
-        if (! preg_match_all('#<(text|title|desc)\b[^>]*>(.*?)</\1>#is', $svg, $matches)) {
-            return [];
-        }
+        preg_match_all('#<(text|title|desc)\b[^>]*>(.*?)</\1>#is', $svg, $matches);
+        // What a screen reader reads of an SVG shown inline, as the theme does.
+        preg_match_all('#\saria-(?:label|description)=(["\'])(.*?)\1#is', $svg, $attributes);
 
         $texts = [];
 
-        foreach ($matches[2] as $inner) {
+        foreach (array_merge($matches[2], $attributes[2]) as $inner) {
             $text = trim((string) preg_replace('/\s+/u', ' ', html_entity_decode((string) preg_replace('/<[^>]*>/', ' ', $inner), ENT_QUOTES | ENT_XML1, 'UTF-8')));
 
             if ($text !== '' && preg_match('/\p{L}{2,}/u', $text)) {
@@ -889,7 +888,7 @@ final class MediaCheck
      */
     private static function queueImages(array $attachmentIds): void
     {
-        if (! TranslationAudit::isConfigured()) {
+        if (! TranslationAudit::isEnabled()) {
             return;
         }
 
@@ -1068,7 +1067,7 @@ final class MediaCheck
             'items' => $items,
             'open' => (int) $result['open'],
             'unchecked' => (int) $result['unchecked'],
-            'canCheckImages' => TranslationAudit::isConfigured(),
+            'canCheckImages' => TranslationAudit::isEnabled(),
             'sourceLanguage' => $default ? StatusList::languageName($default) : '',
             'targetLanguage' => $language ? StatusList::languageName($language) : '',
             'editUrl' => (string) get_edit_post_link($postId, 'raw'),

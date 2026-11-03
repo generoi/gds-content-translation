@@ -338,6 +338,74 @@ class TranslationAuditTest extends AdminActionTestCase
         $this->assertCount($revisionsBefore, wp_get_post_revisions($ids['fi']));
         // No second review.
         $this->assertCount(1, $this->claudeRequests);
+        $this->assertSame('done', TranslationAudit::statuses([$ids['fi']])[$ids['fi']]['status']);
+    }
+
+    public function test_a_second_remark_on_a_text_does_not_undo_the_first(): void
+    {
+        $ids = $this->translation();
+        $this->claudeResponse = $this->claudeAnswers(['summary' => 'Two on one.', 'remarks' => [
+            ['segment' => 1, 'severity' => 'error', 'category' => 'terminology', 'issue' => 'Term.', 'suggestion' => 'Terve <strong>maailma</strong>'],
+            ['segment' => 1, 'severity' => 'warning', 'category' => 'tone', 'issue' => 'Warmer.', 'suggestion' => 'Hei <strong>maailma</strong>!'],
+        ]]);
+
+        TranslationAudit::queue($ids['fi'], 'apply');
+        do_action('gds_content_translation_run_audit', $ids['fi']);
+
+        $review = TranslationAudit::get($ids['fi']);
+        $this->assertSame(1, $review['autoApplied']);
+        $this->assertSame(1, $review['autoSkipped']);
+        $this->assertSame(['resolved', 'open'], array_column($review['remarks'], 'state'));
+        $this->assertStringContainsString('Terve <strong>maailma</strong>', get_post($ids['fi'])->post_content);
+
+        // Used by hand, the second is refused too; the editor's own text is not.
+        $second = (int) $review['remarks'][1]['id'];
+        $this->assertInstanceOf(WP_Error::class, TranslationAudit::applyText($ids['fi'], $second, 'Hei <strong>maailma</strong>!', 'suggestion'));
+        $this->assertTrue(TranslationAudit::applyText($ids['fi'], $second, 'Terve <strong>maailma</strong>!', 'edited'));
+    }
+
+    public function test_an_automatic_apply_keeps_html_that_only_an_editor_may_save(): void
+    {
+        $ids = $this->translation();
+        $editor = self::factory()->user->create(['role' => 'administrator']);
+        grant_super_admin($editor);
+        $embed = '<!-- wp:html --><iframe src="https://example.com/map"></iframe><!-- /wp:html -->';
+        wp_update_post(['ID' => $ids['fi'], 'post_content' => get_post($ids['fi'])->post_content.$embed]);
+        $this->claudeResponse = $this->remarksToApply();
+
+        wp_set_current_user($editor);
+        TranslationAudit::queue($ids['fi'], 'apply');
+        // In the background, as the review runs: no one signed in.
+        wp_set_current_user(0);
+        do_action('gds_content_translation_run_audit', $ids['fi']);
+
+        $this->assertSame(2, TranslationAudit::get($ids['fi'])['autoApplied']);
+        $this->assertStringContainsString('<iframe src="https://example.com/map"></iframe>', get_post($ids['fi'])->post_content);
+    }
+
+    public function test_the_status_screen_sees_a_review_running_until_its_suggestions_are_applied(): void
+    {
+        foreach (['apply', 'apply_review'] as $followup) {
+            $ids = $this->translation();
+            $this->claudeResponse = $this->remarksToApply();
+            $seen = [];
+            $watch = static function (int $postId) use (&$seen, $ids): void {
+                if ($postId === $ids['fi']) {
+                    $status = TranslationAudit::statuses([$postId])[$postId];
+                    $seen[] = $status['status'].':'.$status['errors'];
+                }
+            };
+            add_action('save_post', $watch);
+
+            TranslationAudit::queue($ids['fi'], $followup);
+            do_action('gds_content_translation_run_audit', $ids['fi']);
+            remove_action('save_post', $watch);
+
+            // Each suggestion is written as a save; none shows the remarks it fixes.
+            $this->assertNotEmpty($seen);
+            $this->assertSame(['pending:0'], array_values(array_unique($seen)), $followup);
+            $this->assertSame($followup === 'apply' ? 'done' : 'pending', TranslationAudit::statuses([$ids['fi']])[$ids['fi']]['status'], $followup);
+        }
     }
 
     public function test_apply_and_review_follow_up_runs_one_more_review_left_to_an_editor(): void
@@ -568,8 +636,8 @@ class TranslationAuditTest extends AdminActionTestCase
         $this->assertSame(range(32, 61), array_column($second['segments'], 'id'));
         $this->assertStringContainsString('Part 2 of 2', $second['part']);
         $this->assertSame(['input' => 200, 'output' => 40], $review['usage']);
-        // The same remark from both calls (the fake answers alike) is kept per call.
-        $this->assertSame([61, 61], array_column($review['remarks'], 'segment'));
+        // Both calls answer alike: only the part that sent text 61 may remark on it.
+        $this->assertSame([61], array_column($review['remarks'], 'segment'));
     }
 
     public function test_a_nested_block_placeholder_is_kept_and_shown_as_a_marker(): void

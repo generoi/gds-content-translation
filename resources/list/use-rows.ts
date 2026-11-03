@@ -18,6 +18,8 @@ export interface RowsState {
 	patchRow: ( sourceId: number, update: ( row: Row ) => Row ) => void;
 	/** Bumped each time rows arrive, for effects that wait for them. */
 	loadedAt: number;
+	/** When the last load finished, also a failed one: polling goes on after a blip. */
+	settledAt: number;
 }
 
 export function useRows( postType: string, view: View ): RowsState {
@@ -27,6 +29,7 @@ export function useRows( postType: string, view: View ): RowsState {
 	const [ error, setError ] = useState( '' );
 	const [ reload, setReload ] = useState( { count: 0, quiet: false } );
 	const [ loadedAt, setLoadedAt ] = useState( 0 );
+	const [ settledAt, setSettledAt ] = useState( 0 );
 	const lastPathRef = useRef( '' );
 
 	useEffect( () => {
@@ -55,6 +58,7 @@ export function useRows( postType: string, view: View ): RowsState {
 			.finally( () => {
 				if ( ! controller.signal.aborted ) {
 					setIsLoading( false );
+					setSettledAt( Date.now() );
 				}
 			} );
 
@@ -67,5 +71,5 @@ export function useRows( postType: string, view: View ): RowsState {
 		setData( ( current ) => current && { ...current, rows: current.rows.map( ( row ) => ( row.sourceId === sourceId ? update( row ) : row ) ) } );
 	}, [] );
 
-	return { data, isLoading, error, refresh, patchRow, loadedAt };
+	return { data, isLoading, error, refresh, patchRow, loadedAt, settledAt };
 }

@@ -100,16 +100,30 @@ final class MediaReplace
             return new WP_Error('gds_ct_url_invalid', __('Enter a full address, starting with https://', 'gds-content-translation'));
         }
 
-        $pairs = [$old => $new, esc_attr($old) => esc_attr($new), esc_url($old) => esc_url($new)];
-        $result = self::change($postId, static function (array $block) use ($old, $new, $pairs): array {
+        // Whole addresses only: not the same address inside a longer one
+        // (`kela.fi` in `kela.fi/fi/asiointi`), nor in the text.
+        $html = static function (string $content) use ($old, $new): string {
+            $content = (string) preg_replace_callback(
+                '/\b(href|src)=(["\'])(.*?)\2/i',
+                static fn (array $match): string => html_entity_decode($match[3], ENT_QUOTES, 'UTF-8') === $old ? $match[1].'='.$match[2].esc_url($new).$match[2] : $match[0],
+                $content
+            );
+
+            // An embed's address, on its own line in the block's wrapper.
+            return (string) preg_replace('/(^|\n)\s*'.preg_quote($old, '/').'\s*(\n|$)/', '${1}'.str_replace(['\\', '$'], ['\\\\', '\\$'], $new).'${2}', $content);
+        };
+        $result = self::change($postId, static function (array $block) use ($old, $new, $html): array {
             foreach ($block['attrs'] as $name => $value) {
                 if ($value === $old) {
                     $block['attrs'][$name] = $new;
                 }
             }
 
-            return self::replaceInHtml($block, $pairs);
-        }, static fn (string $content): string => strtr($content, $pairs));
+            $block['innerHTML'] = $html((string) $block['innerHTML']);
+            $block['innerContent'] = array_map(static fn ($part) => is_string($part) ? $html($part) : $part, (array) $block['innerContent']);
+
+            return $block;
+        }, $html);
 
         return self::done($postId, $result);
     }

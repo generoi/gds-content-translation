@@ -54,6 +54,17 @@ class BlockPostIdTranslationTest extends PolylangTestCase
         $this->assertArrayNotHasKey('postId', $blocks[0]['attrs']);
     }
 
+    public function test_it_keeps_an_id_of_an_object_without_a_language(): void
+    {
+        // Media, when Polylang does not translate media: the same in every language.
+        $image = self::factory()->attachment->create_object('photo.jpg', 0, ['post_mime_type' => 'image/jpeg']);
+        $block = ['blockName' => 'woocommerce/featured-product', 'attrs' => ['mediaId' => $image], 'innerBlocks' => [], 'innerHTML' => '', 'innerContent' => []];
+
+        $blocks = BlockPostIdTranslation::translateBlocks([$block], 'fi');
+
+        $this->assertSame($image, $blocks[0]['attrs']['mediaId']);
+    }
+
     public function test_it_leaves_non_numeric_values_untouched(): void
     {
         $blocks = BlockPostIdTranslation::translateBlocks(

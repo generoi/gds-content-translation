@@ -5,7 +5,6 @@
  * translated.
  */
 import { Modal, VisuallyHidden } from '@wordpress/components';
-import { useState } from '@wordpress/element';
 import { __, _n, sprintf } from '@wordpress/i18n';
 import { defaultLanguage } from '../settings';
 import { MediaList } from './media-list';
@@ -28,8 +27,11 @@ export function MediaModal( { postId, about, onChange, onClose }: { postId: numb
 	);
 }
 
-export function MediaBadge( { postId, count, about, onChange }: { postId: number; count?: number; about: string; onChange: () => void } ) {
-	const [ isOpen, setIsOpen ] = useState( false );
+/**
+ * The modal is the cell's, so it stays open while the last item is fixed
+ * and the badge goes.
+ */
+export function MediaBadge( { count, about, onOpen }: { count?: number; about: string; onOpen: () => void } ) {
 	const source = defaultLanguage()?.name ?? '';
 
 	if ( ! count ) {
@@ -50,12 +52,9 @@ export function MediaBadge( { postId, count, about, onChange }: { postId: number
 	);
 
 	return (
-		<>
-			<button type="button" className="gds-ct__audit gds-ct__audit--media" title={ title } onClick={ () => setIsOpen( true ) }>
-				<span aria-hidden="true">{ label }</span>
-				<VisuallyHidden>{ `${ title }: ${ about }` }</VisuallyHidden>
-			</button>
-			{ isOpen && <MediaModal postId={ postId } about={ about } onChange={ onChange } onClose={ () => setIsOpen( false ) } /> }
-		</>
+		<button type="button" className="gds-ct__audit gds-ct__audit--media" title={ title } onClick={ onOpen }>
+			<span aria-hidden="true">{ label }</span>
+			<VisuallyHidden>{ `${ title }: ${ about }` }</VisuallyHidden>
+		</button>
 	);
 }

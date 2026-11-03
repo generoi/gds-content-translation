@@ -395,16 +395,37 @@ final class TranslationAudit
             $review = AuditNotes::add($postId, $review);
         }
 
+        $followup = (string) ($queued['followup'] ?? 'manual');
+        $applies = $review['status'] === 'done' && in_array($followup, ['apply', 'apply_review'], true);
+
+        // Still running to the status screen while its suggestions are
+        // applied, so it does not show the remarks they fix and stop asking.
+        if ($applies) {
+            $review['applying'] = time();
+        }
+
         self::store($postId, $review);
 
         if ($review['status'] === 'done') {
             GlossaryLearning::fromReview($postId, $review);
         }
 
-        $followup = (string) ($queued['followup'] ?? 'manual');
+        if ($applies) {
+            // As the editor who asked: in the background there is no user,
+            // and WordPress would filter the whole translation's HTML on save
+            // (an embed's iframe, an inline SVG).
+            $previousUser = get_current_user_id();
+            $requestedBy = (int) ($review['requestedBy'] ?? 0);
 
-        if ($review['status'] === 'done' && in_array($followup, ['apply', 'apply_review'], true)) {
-            self::applyAll($postId, $followup);
+            if ($requestedBy > 0 && get_userdata($requestedBy)) {
+                wp_set_current_user($requestedBy);
+            }
+
+            try {
+                self::applyAll($postId, $followup);
+            } finally {
+                wp_set_current_user($previousUser);
+            }
 
             if ($followup === 'apply_review' && self::countApplied($postId) > 0) {
                 // Checks the text as it is now; what it finds is left to an editor.
@@ -457,6 +478,11 @@ final class TranslationAudit
             $review['followup'] = $followup;
             $review['autoApplied'] = $applied;
             $review['autoSkipped'] = $skipped;
+            // A second review follows at once, and keeps it running.
+            if ($followup !== 'apply_review' || $applied === 0) {
+                unset($review['applying']);
+            }
+
             self::store($postId, $review);
         }
 
@@ -697,13 +723,48 @@ final class TranslationAudit
      */
     public static function setRemarkState(int $postId, int $remarkId, string $state, bool $syncNote = true, string $resolution = ''): bool
     {
+        return self::locked($postId, static fn (): bool => self::changeRemarkState($postId, $remarkId, $state, $syncNote, $resolution));
+    }
+
+    /**
+     * Changes to one translation's remarks, one at a time: each reads the
+     * review (and the translation) and writes it back, so two at once would
+     * undo each other, or the first's text.
+     *
+     * @template T
+     *
+     * @param  callable(): T  $change
+     * @return T
+     */
+    private static function locked(int $postId, callable $change): mixed
+    {
+        global $wpdb;
+
+        $name = 'gds_ct_review_'.$postId;
+        $locked = (int) $wpdb->get_var($wpdb->prepare('SELECT GET_LOCK(%s, 20)', $name)) === 1;
+
+        try {
+            // What another request wrote while this one waited.
+            clean_post_cache($postId);
+            wp_cache_delete($postId, 'post_meta');
+
+            return $change();
+        } finally {
+            if ($locked) {
+                $wpdb->query($wpdb->prepare('SELECT RELEASE_LOCK(%s)', $name));
+            }
+        }
+    }
+
+    private static function changeRemarkState(int $postId, int $remarkId, string $state, bool $syncNote, string $resolution): bool
+    {
         $review = self::get($postId);
 
         if (! $review || ! in_array($state, self::remarkStates, true)) {
             return false;
         }
 
-        foreach ($review['remarks'] as $index => $remark) {
+        foreach ((array) ($review['remarks'] ?? []) as $index => $remark) {
             if ((int) $remark['id'] === $remarkId) {
                 $review['remarks'][$index]['state'] = $state;
                 $review['remarks'][$index]['resolution'] = $state === 'open' ? '' : $resolution;
@@ -730,20 +791,43 @@ final class TranslationAudit
      */
     public static function applyText(int $postId, int $remarkId, string $text, string $resolution): true|WP_Error
     {
+        return self::locked($postId, static fn (): true|WP_Error => self::writeText($postId, $remarkId, $text, $resolution));
+    }
+
+    private static function writeText(int $postId, int $remarkId, string $text, string $resolution): true|WP_Error
+    {
         $review = self::get($postId);
         $post = get_post($postId);
-        $remark = $review ? (array_column($review['remarks'], null, 'id')[$remarkId] ?? null) : null;
-        $segmentIndex = $remark ? array_search($remark['segment'], array_column($review['segments'], 'id'), true) : false;
+        $remark = $review ? (array_column((array) ($review['remarks'] ?? []), null, 'id')[$remarkId] ?? null) : null;
+        $segmentIndex = $remark ? array_search($remark['segment'], array_column((array) ($review['segments'] ?? []), 'id'), true) : false;
 
         if (! $post || ! $remark || $segmentIndex === false || trim($text) === '') {
             return new WP_Error('gds_ct_audit_apply', __('This remark could not be found.', 'gds-content-translation'));
         }
 
-        if (function_exists('wp_check_post_lock') && wp_check_post_lock($postId)) {
+        // Not loaded in cron, where an automatic apply can run.
+        if (! function_exists('wp_check_post_lock')) {
+            require_once ABSPATH.'wp-admin/includes/post.php';
+        }
+
+        // An automatic apply runs as the editor who asked, who may have the
+        // translation open: their lock counts too.
+        $lock = explode(':', (string) get_post_meta($postId, '_edit_lock', true));
+        $openByAnyone = count($lock) === 2 && time() - (int) $lock[0] < (int) apply_filters('wp_check_post_lock_window', 150);
+
+        if ($resolution === 'auto' ? $openByAnyone : wp_check_post_lock($postId)) {
             return new WP_Error('gds_ct_audit_locked', __('Someone has this translation open in the editor. Make the change there, or try again when it is closed.', 'gds-content-translation'));
         }
 
         $segment = $review['segments'][$segmentIndex];
+
+        // A suggestion is written for the text as reviewed: once another
+        // remark on the same text was used, this one would undo that.
+        $changedByOther = isset($segment['reviewed']) && $segment['translation'] !== $segment['reviewed'] && ($remark['appliedText'] ?? null) !== $segment['translation'];
+
+        if ($changedByOther && $resolution !== 'edited') {
+            return new WP_Error('gds_ct_audit_other_remark', __('Another remark on this text was used, and this suggestion was written for the text before it. Edit the text to combine them.', 'gds-content-translation'));
+        }
 
         // wp_kses_post() drops the `translate` attribute of a nested block's placeholder,
         // and a text without all of them would delete those blocks.
@@ -784,6 +868,7 @@ final class TranslationAudit
             wp_update_post(['ID' => $postId, 'post_content' => wp_slash($content)]);
         }
 
+        $review['segments'][$segmentIndex]['reviewed'] ??= $segment['translation'];
         $review['segments'][$segmentIndex]['translation'] = $text;
         $review['contentHash'] = self::contentHash($postId);
 
@@ -939,6 +1024,10 @@ final class TranslationAudit
             return 'failed';
         }
 
+        if (! empty($review['applying'])) {
+            return 'pending:'.(int) $review['applying'];
+        }
+
         $errors = 0;
         $other = 0;
 
@@ -1030,7 +1119,10 @@ final class TranslationAudit
             $usage['input'] += $result['usage']['input'];
             $usage['output'] += $result['usage']['output'];
             $summaries[] = $result['summary'];
-            $remarks = array_merge($remarks, $result['remarks']);
+            // Only about the texts this part sent: a remark on another part's
+            // text was written without seeing it.
+            $sent = array_map('intval', array_column($chunk, 'id'));
+            $remarks = array_merge($remarks, array_filter((array) $result['remarks'], static fn ($remark): bool => is_array($remark) && in_array((int) ($remark['segment'] ?? 0), $sent, true)));
         }
 
         return array_merge($review, [

@@ -230,6 +230,12 @@ final class SvgTranslation
      */
     public static function render(string $svg, array $labels): string
     {
+        $svg = (string) preg_replace_callback('#(\saria-(?:label|description)=)(["\'])(.*?)\2#is', static function (array $match) use ($labels): string {
+            $plain = trim((string) preg_replace('/\s+/u', ' ', html_entity_decode($match[3], ENT_QUOTES | ENT_XML1, 'UTF-8')));
+
+            return isset($labels[$plain]) ? $match[1].$match[2].esc_attr($labels[$plain]).$match[2] : $match[0];
+        }, $svg);
+
         return (string) preg_replace_callback('#<(text|title|desc)\b([^>]*)>(.*?)</\1>#is', static function (array $match) use ($labels): string {
             $plain = trim((string) preg_replace('/\s+/u', ' ', html_entity_decode((string) preg_replace('/<[^>]*>/', ' ', $match[3]), ENT_QUOTES | ENT_XML1, 'UTF-8')));
 

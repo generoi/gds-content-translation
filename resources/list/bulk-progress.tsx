@@ -7,8 +7,10 @@
 import { Button, ProgressBar } from '@wordpress/components';
 import { useState } from '@wordpress/element';
 import { __, _n, sprintf } from '@wordpress/i18n';
+import { errorMessage } from '../api';
 import { languageName } from '../settings';
 import type { Job } from '../types';
+import { notifyError } from '../ui/notify';
 import { isActive } from './use-jobs';
 
 export function BulkProgress( { jobs, onCancel, onDismiss }: { jobs: Job[]; onCancel: () => Promise< void >; onDismiss: () => Promise< void > } ) {
@@ -27,7 +29,9 @@ export function BulkProgress( { jobs, onCancel, onDismiss }: { jobs: Job[]; onCa
 
 	const act = ( callback: () => Promise< void > ) => () => {
 		setIsBusy( true );
-		callback().finally( () => setIsBusy( false ) );
+		callback()
+			.catch( ( caught: unknown ) => notifyError( errorMessage( caught, __( 'That did not work. Try again.', 'gds-content-translation' ) ) ) )
+			.finally( () => setIsBusy( false ) );
 	};
 
 	return (

@@ -153,6 +153,24 @@ class MediaActionsTest extends RestTestCase
         $this->assertSame([], MediaCheck::get($ids['fi'])['items']);
     }
 
+    public function test_a_link_is_replaced_only_where_it_is_the_whole_address(): void
+    {
+        $ids = $this->translated('<!-- wp:paragraph --><p><a href="https://example.com/en">Home</a> and <a href="https://example.com/en/guide">https://example.com/en</a></p><!-- /wp:paragraph -->');
+
+        $this->assertSame(200, $this->mediaAction($ids['fi'], 'link:example.com/en', 'replace', ['value' => 'https://example.com/fi'])->get_status());
+
+        $content = get_post_field('post_content', $ids['fi']);
+        $this->assertStringContainsString('<a href="https://example.com/fi">Home</a>', $content);
+        $this->assertStringContainsString('<a href="https://example.com/en/guide">https://example.com/en</a>', $content);
+    }
+
+    public function test_an_action_the_item_does_not_offer_is_refused(): void
+    {
+        $ids = $this->translated('<!-- wp:paragraph --><p><a href="https://example.com/en/guide">Guide</a></p><!-- /wp:paragraph -->');
+
+        $this->assertSame(400, $this->mediaAction($ids['fi'], 'link:example.com/en/guide', 'svg-translate')->get_status());
+    }
+
     public function test_an_address_that_is_not_one_is_refused(): void
     {
         $ids = $this->translated('<!-- wp:paragraph --><p><a href="https://example.com/en/guide">Guide</a></p><!-- /wp:paragraph -->');
@@ -166,7 +184,7 @@ class MediaActionsTest extends RestTestCase
             $this->markTestSkipped('Polylang Pro is not available.');
         }
 
-        $svg = $this->attachment('deck.svg', 'image/svg+xml', '<svg xmlns="http://www.w3.org/2000/svg"><title>Deck</title><text x="1">Deck board 28 × 120</text><text><tspan>Two</tspan><tspan>lines</tspan></text></svg>');
+        $svg = $this->attachment('deck.svg', 'image/svg+xml', '<svg xmlns="http://www.w3.org/2000/svg" aria-label="Deck plan"><title>Deck</title><text x="1">Deck board 28 × 120</text><text><tspan>Two</tspan><tspan>lines</tspan></text></svg>');
         update_post_meta($svg, '_wp_attachment_image_alt', 'A deck');
         $content = sprintf('<!-- wp:image {"id":%d} --><figure class="wp-block-image"><img src="%s" class="wp-image-%d"/></figure><!-- /wp:image -->', $svg, wp_get_attachment_url($svg), $svg);
         $ids = $this->translated($content);
@@ -180,6 +198,7 @@ class MediaActionsTest extends RestTestCase
         $this->assertStringContainsString('<text x="1">DECK BOARD 28 × 120</text>', $written);
         $this->assertStringContainsString('<tspan>TWO LINES</tspan><tspan></tspan>', $written);
         $this->assertStringContainsString('<title>DECK</title>', $written);
+        $this->assertStringContainsString('aria-label="DECK PLAN"', $written);
         $this->assertSame('A DECK', get_post_meta($copy, '_wp_attachment_image_alt', true));
         $this->assertStringContainsString('wp-image-'.$copy, get_post_field('post_content', $ids['fi']));
 
@@ -227,6 +246,10 @@ class MediaActionsTest extends RestTestCase
 
         $this->assertSame(200, $this->mediaAction($ids['fi'], $key, 'document-translate')->get_status());
         $this->assertSame('translating', DocumentTranslation::jobs($ids['fi'])[(string) $pdf]['status']);
+        // Not sent (and billed) a second time while DeepL works on it.
+        $uploads = count(array_filter($this->requests, static fn (array $request): bool => str_ends_with($request['url'], '/v2/document')));
+        $this->assertSame(400, $this->mediaAction($ids['fi'], $key, 'document-translate')->get_status());
+        $this->assertSame($uploads, count(array_filter($this->requests, static fn (array $request): bool => str_ends_with($request['url'], '/v2/document'))));
 
         DocumentTranslation::poll($ids['fi'], $pdf);
         $job = DocumentTranslation::jobs($ids['fi'])[(string) $pdf];

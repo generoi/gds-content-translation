@@ -124,6 +124,17 @@ function Editor( { formId, lang, onBack }: { formId: number; lang: string; onBac
 
 	const dirty = useMemo( () => Object.keys( drafts ).filter( ( key ) => drafts[ key ] !== ( data?.rows.find( ( row ) => row.source === key )?.translation ?? '' ) ), [ drafts, data ] );
 
+	useEffect( () => {
+		if ( dirty.length === 0 ) {
+			return;
+		}
+
+		const warn = ( event: BeforeUnloadEvent ) => event.preventDefault();
+		window.addEventListener( 'beforeunload', warn );
+
+		return () => window.removeEventListener( 'beforeunload', warn );
+	}, [ dirty.length ] );
+
 	if ( failed ) {
 		return <Notice status="error" isDismissible={ false }>{ failed }</Notice>;
 	}
@@ -135,12 +146,13 @@ function Editor( { formId, lang, onBack }: { formId: number; lang: string; onBac
 	const missing = data.rows.filter( ( row ) => row.translation === '' ).length;
 	const remarks = data.rows.filter( ( row ) => row.remark ).length;
 
-	const run = ( what: string, request: () => Promise< FormRows >, done: ( next: FormRows ) => string ) => {
+	// Clears the drafts of the texts the request saved, and keeps the others.
+	const run = ( what: string, request: () => Promise< FormRows >, done: ( next: FormRows ) => string, saved: string[] = [] ) => {
 		setBusy( what );
 		request()
 			.then( ( next ) => {
 				setData( next );
-				setDrafts( {} );
+				setDrafts( ( current ) => Object.fromEntries( Object.entries( current ).filter( ( [ key ] ) => ! saved.includes( key ) ) ) );
 				notifySuccess( done( next ) );
 			} )
 			.catch( ( caught: unknown ) => notifyError( errorMessage( caught, __( 'That did not work. Try again.', 'gds-content-translation' ) ) ) )
@@ -151,13 +163,20 @@ function Editor( { formId, lang, onBack }: { formId: number; lang: string; onBac
 		run(
 			'save',
 			() => saveForm( formId, lang, Object.fromEntries( dirty.map( ( key ) => [ key, drafts[ key ] ?? '' ] ) ) ),
-			() => __( 'Translations saved.', 'gds-content-translation' )
+			() => __( 'Translations saved.', 'gds-content-translation' ),
+			dirty
 		);
+
+	const back = () => {
+		if ( dirty.length === 0 || window.confirm( __( 'Leave without saving your changes?', 'gds-content-translation' ) ) ) {
+			onBack();
+		}
+	};
 
 	return (
 		<div className="gds-ct-forms__editor">
 			<p>
-				<Button variant="link" onClick={ onBack }>
+				<Button variant="link" onClick={ back }>
 					{ __( '← All forms', 'gds-content-translation' ) }
 				</Button>
 			</p>
@@ -282,7 +301,7 @@ function Editor( { formId, lang, onBack }: { formId: number; lang: string; onBac
 												size="compact"
 												disabled={ !! busy }
 												accessibleWhenDisabled
-												onClick={ () => run( `remark-${ row.source }`, () => formOperation( formId, lang, 'remark', { source: row.source, use: true } ), () => __( 'Suggestion used.', 'gds-content-translation' ) ) }
+												onClick={ () => run( `remark-${ row.source }`, () => formOperation( formId, lang, 'remark', { source: row.source, use: true } ), () => __( 'Suggestion used.', 'gds-content-translation' ), [ row.source ] ) }
 											>
 												{ __( 'Use suggestion', 'gds-content-translation' ) }
 											</Button>{ ' ' }
@@ -291,7 +310,7 @@ function Editor( { formId, lang, onBack }: { formId: number; lang: string; onBac
 												size="compact"
 												disabled={ !! busy }
 												accessibleWhenDisabled
-												onClick={ () => run( `remark-${ row.source }`, () => formOperation( formId, lang, 'remark', { source: row.source, use: false } ), () => __( 'Marked as not an issue.', 'gds-content-translation' ) ) }
+												onClick={ () => run( `remark-${ row.source }`, () => formOperation( formId, lang, 'remark', { source: row.source, use: false } ), () => __( 'Marked as not an issue.', 'gds-content-translation' ), [ row.source ] ) }
 											>
 												{ __( 'Not an issue', 'gds-content-translation' ) }
 											</Button>

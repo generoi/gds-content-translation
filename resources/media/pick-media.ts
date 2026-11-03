@@ -5,6 +5,7 @@
 interface MediaFrame {
 	on: ( event: string, callback: () => void ) => void;
 	open: () => void;
+	remove?: () => void;
 	state: () => { get: ( name: string ) => { first: () => { toJSON: () => { id: number } } | undefined } };
 }
 
@@ -32,7 +33,13 @@ export function pickMedia( title: string, button: string, type: string ): Promis
 			chosen = frame.state().get( 'selection' ).first()?.toJSON().id ?? null;
 		} );
 		// Closes after select too: resolve once, with what was chosen.
-		frame.on( 'close', () => setTimeout( () => resolve( chosen ), 0 ) );
+		frame.on( 'close', () =>
+			setTimeout( () => {
+				resolve( chosen );
+				// Each choice opens a new dialog: not one more hidden in the page.
+				frame.remove?.();
+			}, 0 )
+		);
 		frame.open();
 	} );
 }

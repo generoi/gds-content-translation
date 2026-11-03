@@ -166,22 +166,40 @@ export function StatusScreen() {
 
 	useEffect( () => {
 		if ( singleDone ) {
-			dismissFinished();
+			// Only tidying up: the panel stays when it fails.
+			dismissFinished().catch( () => undefined );
 		}
 	}, [ singleDone, dismissFinished ] );
 
+	// Past the last page (its last rows trashed or handled): the last page.
+	const totalPages = rows.data?.totalPages ?? 0;
+
+	useEffect( () => {
+		if ( totalPages > 0 && ( view.page ?? 1 ) > totalPages ) {
+			setView( { ...view, page: totalPages } );
+		}
+	}, [ totalPages, view, setView ] );
+
 	// Rows with an AI review running are reloaded until it is done.
 	const data = rows.data?.rows;
-	const reviewing = useMemo( () => ( data ?? [] ).some( ( row ) => Object.values( row.languages ).some( ( cell ) => cell.audit?.status === 'pending' ) ), [ data ] );
+	// Which reviews run: a new one (the next of a bulk run, say) gives the
+	// polling its time again.
+	const reviewing = useMemo(
+		() =>
+			( data ?? [] )
+				.flatMap( ( row ) => Object.values( row.languages ).filter( ( cell ) => cell.audit?.status === 'pending' ).map( ( cell ) => cell.postId ) )
+				.join( ',' ),
+		[ data ]
+	);
+
+	useEffect( () => {
+		reviewPollStartedRef.current = reviewing ? Date.now() : 0;
+	}, [ reviewing ] );
 
 	useEffect( () => {
 		if ( ! reviewing ) {
-			reviewPollStartedRef.current = 0;
-
 			return;
 		}
-
-		reviewPollStartedRef.current ||= Date.now();
 
 		if ( Date.now() - reviewPollStartedRef.current > REVIEW_POLL_FOR ) {
 			return;
@@ -190,7 +208,7 @@ export function StatusScreen() {
 		const timer = setTimeout( () => refresh( true ), REVIEW_POLL );
 
 		return () => clearTimeout( timer );
-	}, [ reviewing, rows.loadedAt, refresh ] );
+	}, [ reviewing, rows.settledAt, refresh ] );
 
 	// Focus back on the cell an action was taken in, or on the row named in
 	// the URL (the review page's "Back" link), once the rows are there.
