@@ -47,6 +47,17 @@ export function StringsScreen() {
 	const [ failed, setFailed ] = useState( '' );
 	const [ altsMissing, setAltsMissing ] = useState< Record< string, number > >( {} );
 	const dirtyRef = useRef( 0 );
+	// An answer for the language shown before (a DeepL run that ends after a
+	// switch) does not replace this one's.
+	const langRef = useRef( lang );
+	useEffect( () => {
+		langRef.current = lang;
+	}, [ lang ] );
+	const setShownData = useCallback( ( next: StringsResponse ) => {
+		if ( next.language.slug === langRef.current ) {
+			setData( next );
+		}
+	}, [] );
 	const language = languages.find( ( candidate ) => candidate.slug === lang );
 	const isDefault = !! language?.isDefault;
 	const shown: StringsSection = section === 'alts' && ( ! altsOn || isDefault ) ? 'texts' : section;
@@ -154,10 +165,10 @@ export function StringsScreen() {
 							) }
 						</p>
 					) }
-					<TextsSection key={ lang } data={ data } onData={ setData } onDirty={ onDirty } />
+					<TextsSection key={ lang } data={ data } onData={ setShownData } onDirty={ onDirty } />
 				</>
 			) }
-			{ data && shown === 'slugs' && <SlugsSection key={ lang } data={ data } onData={ setData } onDirty={ onDirty } /> }
+			{ data && shown === 'slugs' && <SlugsSection key={ lang } data={ data } onData={ setShownData } onDirty={ onDirty } /> }
 			{ shown === 'alts' && language && <AltsSection key={ lang } lang={ lang } language={ language.name } missing={ altsMissing[ lang ] ?? 0 } onMissing={ setAltsMissing } onDirty={ onDirty } /> }
 			<Notices />
 		</div>

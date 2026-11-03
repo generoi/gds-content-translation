@@ -452,8 +452,9 @@ final class BulkTranslation
 
         if ($result instanceof WP_Error) {
             self::save($job['sourceId'], $job['language'], array_merge($job, [
-                // Someone created it meanwhile: nothing left to do.
-                'status' => $result->get_error_code() === 'gds_ct_exists' ? 'skipped' : 'failed',
+                // Someone created it meanwhile (also while this waited for
+                // their lock): nothing left to do.
+                'status' => $result->get_error_code() === 'gds_ct_exists' || ($result->get_error_code() === 'gds_ct_locked' && (int) pll_get_post((int) $job['sourceId'], (string) $job['language']) > 0) ? 'skipped' : 'failed',
                 'finishedAt' => time(),
                 'error' => $result->get_error_message(),
             ]));

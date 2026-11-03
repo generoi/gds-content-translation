@@ -4,6 +4,7 @@ namespace GeneroWP\ContentTranslation;
 
 use PLL_Language;
 use PLL_Translation_Walker_Factory;
+use Throwable;
 use Translation_Entry;
 use WP_Error;
 use WP_Post;
@@ -464,7 +465,24 @@ final class TranslationAudit
             $review['applying'] = time();
         }
 
-        self::store($postId, $review);
+        // Only while this is still the run asked for: one queued meanwhile
+        // ("Run the review again", a new AI translation) replaces it.
+        $current = self::locked($postId, static function () use ($postId, $review): bool {
+            if ((string) (self::get($postId)['run'] ?? '') !== $review['run']) {
+                return false;
+            }
+
+            self::store($postId, $review);
+
+            return true;
+        });
+
+        if (! $current) {
+            AuditNotes::remove($postId, array_values(array_filter(array_map('intval', array_column((array) ($review['remarks'] ?? []), 'noteId')))));
+            self::startNext();
+
+            return;
+        }
 
         if ($review['status'] === 'done') {
             GlossaryLearning::fromReview($postId, $review);
@@ -483,6 +501,19 @@ final class TranslationAudit
 
             try {
                 self::applyAll($postId, $followup);
+            } catch (Throwable $e) {
+                // The review stays, with what was applied; not "running" for good.
+                error_log(sprintf('[gds-content-translation] Applying the suggestions to post %d failed: %s', $postId, $e->getMessage()));
+                $after = self::get($postId);
+
+                if ($after) {
+                    unset($after['applying']);
+                    self::store($postId, $after);
+                }
+
+                self::startNext();
+
+                return;
             } finally {
                 wp_set_current_user($previousUser);
             }
@@ -517,19 +548,21 @@ final class TranslationAudit
             remove_action('post_updated', 'wp_save_post_revision', $revisions);
         }
 
-        foreach ((array) ($review['remarks'] ?? []) as $remark) {
-            $suggestion = trim((string) ($remark['suggestion'] ?? ''));
+        try {
+            foreach ((array) ($review['remarks'] ?? []) as $remark) {
+                $suggestion = trim((string) ($remark['suggestion'] ?? ''));
 
-            if (($remark['state'] ?? 'open') !== 'open' || $suggestion === '') {
-                continue;
+                if (($remark['state'] ?? 'open') !== 'open' || $suggestion === '') {
+                    continue;
+                }
+
+                $result = self::applyText($postId, (int) $remark['id'], (string) $remark['suggestion'], 'auto');
+                $result === true ? $applied++ : $skipped++;
             }
-
-            $result = self::applyText($postId, (int) $remark['id'], (string) $remark['suggestion'], 'auto');
-            $result === true ? $applied++ : $skipped++;
-        }
-
-        if ($revisions !== false) {
-            add_action('post_updated', 'wp_save_post_revision', $revisions);
+        } finally {
+            if ($revisions !== false) {
+                add_action('post_updated', 'wp_save_post_revision', $revisions);
+            }
         }
 
         $review = self::get($postId);
@@ -834,18 +867,20 @@ final class TranslationAudit
             $texts += array_column(self::pairFields($source, $post), 'translation', 'field');
         }
 
-        return md5($post->post_content.($texts ? wp_json_encode($texts) : ''));
+        // "f": with the title, excerpt and SEO texts; a review made before
+        // they were has the hash without them, and is compared as it was.
+        return ($fields ? 'f' : '').md5($post->post_content.($texts ? wp_json_encode($texts) : ''));
     }
 
     /**
      * Whether the translation changed since a review that saw it with this
      * hash, as the review page and the status screen say. A review stored
      * before the title, excerpt and SEO texts were reviewed has the older
-     * hash, which is checked too.
+     * hash, and is compared with the translation's texts as they were then.
      */
     public static function editedSince(int $postId, string $hash): bool
     {
-        return $hash !== '' && ! in_array($hash, [self::contentHash($postId), self::contentHash($postId, false)], true);
+        return $hash !== '' && $hash !== self::contentHash($postId, str_starts_with($hash, 'f'));
     }
 
     /**
@@ -983,6 +1018,8 @@ final class TranslationAudit
         // wp_kses_post() drops the `translate` attribute of a nested block's placeholder,
         // and a text without all of them would delete those blocks.
         $text = str_replace(self::blockPlaceholderKsesed, self::blockPlaceholder, $text);
+        // Claude saw it without the editor's soft hyphens: back in the words it kept.
+        $text = SoftHyphens::restore((string) $segment['translation'], $text);
 
         if (substr_count($text, self::blockPlaceholder) !== substr_count((string) $segment['translation'], self::blockPlaceholder)) {
             return new WP_Error('gds_ct_audit_nested', __('Keep every “Polylang placeholder do not modify” line in the text: each stands for a nested block.', 'gds-content-translation'));

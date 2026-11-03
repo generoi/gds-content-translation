@@ -121,14 +121,21 @@ final class DeeplGlossary
         return str_ends_with($key, ':fx') ? 'https://api-free.deepl.com' : 'https://api.deepl.com';
     }
 
-    /** The glossary changed: send it within a minute. */
+    /**
+     * The glossary changed: send it within a minute. Also after failed
+     * sends: the change may be what makes it go through (a term DeepL
+     * refused, fixed).
+     */
     public static function markPending(): void
     {
         $state = self::state();
 
-        if (! $state['pending']) {
+        if (! $state['pending'] || (int) ($state['retryAt'] ?? 0) > time() + self::delay) {
             $state['pending'] = true;
+            $state['retryAt'] = 0;
+            $state['failures'] = 0;
             self::save($state);
+            wp_clear_scheduled_hook(self::cronHook);
         }
 
         if (! wp_next_scheduled(self::cronHook)) {

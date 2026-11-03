@@ -108,7 +108,9 @@ class BlockPostIdTranslation
 
         $languageSlug = function_exists('pll_get_post_language') ? pll_get_post_language($post->ID) : null;
 
-        if (! is_string($languageSlug) || $languageSlug === '') {
+        // An original chose its posts itself: one in another language (an
+        // English-only post) must not become 0 on its next save.
+        if (! is_string($languageSlug) || $languageSlug === '' || $languageSlug === pll_default_language('slug')) {
             return $response;
         }
 

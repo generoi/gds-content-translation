@@ -10,8 +10,8 @@ if (! defined('ABSPATH')) {
  * Soft hyphens an editor put in a word (wp-gutenberg-shy's
  * `<span class="is-shy-character">`, or a bare `&shy;`) split it in two
  * for DeepL and Claude: "pilari&shy;perustus" reads as two words. They are
- * taken out of what is sent; the page keeps them, and a translation gets
- * its own where its words break.
+ * taken out of what is sent. The page keeps them: a suggestion written into
+ * a text gets them back in the words it left as they were.
  */
 final class SoftHyphens
 {
@@ -29,6 +29,39 @@ final class SoftHyphens
         $text = (string) preg_replace('#<span\b[^>]*\bis-shy-character\b[^>]*>[^<]*</span>#i', '', $text);
 
         return str_ireplace(["\u{00AD}", '&shy;', '&#173;', '&#xad;'], '', $text);
+    }
+
+    /**
+     * The soft hyphens of a text, put back into a new version of it (a
+     * suggestion written without them) in every word that stayed the same.
+     */
+    public static function restore(string $old, string $new): string
+    {
+        $shy = '(?:<span\b[^>]*\bis-shy-character\b[^>]*>[^<]*</span>|\x{00AD}|&shy;|&#173;|&#xad;)';
+
+        if (! preg_match_all('~(?:[\p{L}\p{N}]|'.$shy.')+~iu', $old, $matches)) {
+            return $new;
+        }
+
+        $marked = [];
+
+        foreach ($matches[0] as $word) {
+            $plain = self::strip($word);
+
+            if ($plain !== $word && $plain !== '') {
+                $marked[$plain] = $word;
+            }
+        }
+
+        foreach ($marked as $plain => $word) {
+            $new = (string) preg_replace_callback(
+                '~(?<![\p{L}\p{N}])'.preg_quote($plain, '~').'(?![\p{L}\p{N}])~u',
+                static fn (): string => $word,
+                $new
+            );
+        }
+
+        return $new;
     }
 
     /**

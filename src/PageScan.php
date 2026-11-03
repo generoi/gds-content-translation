@@ -5,6 +5,7 @@ namespace GeneroWP\ContentTranslation;
 use PLL_Language;
 use Throwable;
 use WP_Error;
+use WP_Http;
 use WP_Http_Cookie;
 use WP_Post;
 use WP_Session_Tokens;
@@ -35,6 +36,9 @@ if (! defined('ABSPATH')) {
  */
 final class PageScan
 {
+    /** This request's worker place, when it has one. */
+    private static string $owner = '';
+
     /** The last result, on the translation. */
     public const metaKey = '_gds_ct_page_scan';
 
@@ -139,10 +143,31 @@ final class PageScan
      *
      * A draft is not public: its preview is fetched with a login cookie of
      * the editor who asked, made for this one request (a session of five
-     * minutes, ended at once) and sent only to the site's own address.
+     * minutes, ended at once) and sent only to the site's own address,
+     * redirects included.
      *
      * @return array{url: string, preview: bool, html: string}|WP_Error
      */
+    /**
+     * The site's own address: its scheme, host and port.
+     */
+    private static function isSiteAddress(string $url): bool
+    {
+        $site = wp_parse_url(home_url());
+        $asked = wp_parse_url($url);
+
+        if (! is_array($site) || ! is_array($asked)) {
+            return false;
+        }
+
+        $scheme = static fn (array $parts): string => strtolower((string) ($parts['scheme'] ?? ''));
+        $port = static fn (array $parts): int => (int) ($parts['port'] ?? ($scheme($parts) === 'https' ? 443 : 80));
+
+        return $scheme($asked) === $scheme($site)
+            && strtolower((string) ($asked['host'] ?? '')) === strtolower((string) ($site['host'] ?? ''))
+            && $port($asked) === $port($site);
+    }
+
     public static function fetch(int $postId, int $userId): array|WP_Error
     {
         $page = self::pageUrl($postId);
@@ -152,9 +177,10 @@ final class PageScan
         }
 
         $url = add_query_arg(self::fetchParam, '1', $page['url']);
+        $offSite = new WP_Error('gds_ct_scan_host', __('The page is not on this site’s address, so it cannot be checked.', 'gds-content-translation'));
 
-        if (strtolower((string) wp_parse_url($url, PHP_URL_HOST)) !== strtolower((string) wp_parse_url(home_url(), PHP_URL_HOST))) {
-            return new WP_Error('gds_ct_scan_host', __('The page is not on this site’s address, so it cannot be checked.', 'gds-content-translation'));
+        if (! self::isSiteAddress($url)) {
+            return $offSite;
         }
 
         $cookies = [];
@@ -172,19 +198,37 @@ final class PageScan
             $cookies[] = new WP_Http_Cookie([
                 'name' => LOGGED_IN_COOKIE,
                 'value' => wp_generate_auth_cookie($userId, $expiration, 'logged_in', $token),
+                'domain' => (string) wp_parse_url(home_url(), PHP_URL_HOST),
             ]);
         }
 
         try {
-            $response = wp_remote_get($url, [
-                'timeout' => 30,
-                'redirection' => 3,
-                // As WordPress' own loopback requests: the site may not trust its own certificate.
-                'sslverify' => apply_filters('https_local_ssl_verify', false),
-                'cookies' => $cookies,
-                'limit_response_size' => 8 * MB_IN_BYTES,
-                'headers' => ['Accept' => 'text/html'],
-            ]);
+            // Redirects are followed here, each checked: the editor's login
+            // goes to the site's own address only, never where a redirect
+            // (a domain move's, say) points.
+            for ($hop = 0; ; $hop++) {
+                $response = wp_remote_get($url, [
+                    'timeout' => 30,
+                    'redirection' => 0,
+                    // As WordPress' own loopback requests: the site may not trust its own certificate.
+                    'sslverify' => apply_filters('https_local_ssl_verify', false),
+                    'cookies' => $cookies,
+                    'limit_response_size' => 8 * MB_IN_BYTES,
+                    'headers' => ['Accept' => 'text/html'],
+                ]);
+                $status = is_wp_error($response) ? 0 : (int) wp_remote_retrieve_response_code($response);
+                $location = is_wp_error($response) ? '' : (string) wp_remote_retrieve_header($response, 'location');
+
+                if ($status < 300 || $status >= 400 || $location === '' || $hop >= 3) {
+                    break;
+                }
+
+                $url = WP_Http::make_absolute_url($location, $url);
+
+                if (! self::isSiteAddress($url)) {
+                    return $offSite;
+                }
+            }
         } finally {
             if ($session) {
                 $session->destroy($token);
@@ -877,6 +921,8 @@ PROMPT;
         }
 
         $result = self::get($postId);
+        // Every key, also of a result kept from a check that never finished.
+        $result = $result ? array_merge(self::emptyResult(), $result) : null;
         $languages = self::languages($postId);
         $source = $languages instanceof WP_Error ? null : $languages[0];
         $target = $languages instanceof WP_Error ? null : $languages[1];
@@ -899,7 +945,7 @@ PROMPT;
                 'estimate' => $result['estimate'],
                 'error' => (string) $result['error'],
                 // The post changed since: the page may have too.
-                'changed' => ($result['contentHash'] ?? '') !== self::contentHash($postId),
+                'changed' => $result['contentHash'] !== '' && $result['contentHash'] !== self::contentHash($postId),
                 'findings' => array_values((array) $result['findings']),
             ] : null,
         ];
@@ -959,7 +1005,10 @@ PROMPT;
      */
     public static function work(?float $budget = null, ?callable $ask = null): void
     {
+        // Another one works, or died holding the place: cron asks again.
         if (! self::acquireWorker()) {
+            self::schedule();
+
             return;
         }
 
@@ -992,13 +1041,29 @@ PROMPT;
 
     private function runQueued(int $postId, ?callable $ask): void
     {
-        $status = self::status($postId);
+        $raw = (string) get_post_meta($postId, self::statusMetaKey, true);
+        $status = self::parseStatus($raw);
 
-        if ($status['status'] !== 'queued') {
+        // Queued, also one that waited long behind a bulk run (shown as stuck):
+        // left as it is, the worker would get it back for good.
+        if (! str_starts_with($raw, 'queued:')) {
             return;
         }
 
         update_post_meta($postId, self::statusMetaKey, sprintf('running:%d:%d', time(), $status['userId']));
+
+        // A page of many texts takes several Claude calls: the worker and the
+        // check say they are alive meanwhile, or another worker would take
+        // the place and fail the check.
+        $lastBeat = time();
+        $heartbeat = static function () use ($postId, $status, &$lastBeat): void {
+            if (time() - $lastBeat >= 30) {
+                $lastBeat = time();
+                self::touchWorker();
+                update_post_meta($postId, self::statusMetaKey, sprintf('running:%d:%d', time(), $status['userId']));
+            }
+        };
+        add_action('http_api_debug', $heartbeat);
 
         if (function_exists('set_time_limit')) {
             set_time_limit(5 * MINUTE_IN_SECONDS);
@@ -1011,8 +1076,9 @@ PROMPT;
             $result = $this->run($postId, $status['userId'], $ask);
         } catch (Throwable $e) {
             error_log(sprintf('[gds-content-translation] The page check of post %d failed: %s', $postId, $e));
-            $result = ['status' => 'failed', 'createdAt' => time(), 'requestedBy' => $status['userId'], 'model' => TranslationAudit::model(), 'contentHash' => '', 'pageHash' => '', 'url' => '', 'preview' => false, 'texts' => 0, 'regions' => [], 'estimate' => null, 'findings' => [], 'error' => $e->getMessage()];
+            $result = array_merge(self::emptyResult(), ['status' => 'failed', 'requestedBy' => $status['userId'], 'error' => $e->getMessage()]);
         } finally {
+            remove_action('http_api_debug', $heartbeat);
             wp_set_current_user($previousUser);
         }
 
@@ -1036,7 +1102,7 @@ PROMPT;
         foreach ($running as $row) {
             if (self::parseStatus((string) $row->meta_value)['status'] === 'stuck') {
                 $postId = (int) $row->post_id;
-                $result = self::get($postId) ?? ['findings' => []];
+                $result = self::get($postId) ?? self::emptyResult();
                 self::store($postId, array_merge($result, ['status' => 'failed', 'createdAt' => time(), 'error' => __('The check did not finish.', 'gds-content-translation')]));
             }
         }
@@ -1047,6 +1113,16 @@ PROMPT;
             self::statusMetaKey,
             $wpdb->esc_like('queued:').'%'
         ));
+    }
+
+    /**
+     * A result with nothing in it, for a check that failed before it had one.
+     *
+     * @return array<string, mixed>
+     */
+    private static function emptyResult(): array
+    {
+        return ['status' => 'failed', 'createdAt' => time(), 'requestedBy' => 0, 'model' => TranslationAudit::model(), 'contentHash' => '', 'pageHash' => '', 'url' => '', 'preview' => false, 'texts' => 0, 'regions' => [], 'estimate' => null, 'findings' => [], 'error' => ''];
     }
 
     private static function schedule(): void
@@ -1069,46 +1145,72 @@ PROMPT;
     {
         global $wpdb;
 
+        // "<time>:<owner>": renewed and released only by its owner, not by a
+        // worker whose place was taken over.
+        self::$owner = wp_generate_password(16, false);
         $insert = static fn () => (int) $wpdb->query($wpdb->prepare(
             "INSERT IGNORE INTO {$wpdb->options} (option_name, option_value, autoload) VALUES (%s, %s, 'no')",
             self::workerOption,
-            (string) time()
+            time().':'.self::$owner
         ));
 
         if ($insert() === 1) {
             return true;
         }
 
-        $touchedAt = (int) $wpdb->get_var($wpdb->prepare("SELECT option_value FROM {$wpdb->options} WHERE option_name = %s", self::workerOption));
+        $value = (string) $wpdb->get_var($wpdb->prepare("SELECT option_value FROM {$wpdb->options} WHERE option_name = %s", self::workerOption));
+        $touchedAt = (int) strtok($value, ':');
 
         if ($touchedAt > 0 && time() - $touchedAt < self::staleAfter) {
+            self::$owner = '';
+
             return false;
         }
 
-        $wpdb->query($wpdb->prepare("DELETE FROM {$wpdb->options} WHERE option_name = %s AND option_value = %s", self::workerOption, (string) $touchedAt));
+        $wpdb->query($wpdb->prepare("DELETE FROM {$wpdb->options} WHERE option_name = %s AND option_value = %s", self::workerOption, $value));
 
-        return $insert() === 1;
+        if ($insert() === 1) {
+            return true;
+        }
+
+        self::$owner = '';
+
+        return false;
     }
 
     private static function touchWorker(): void
     {
         global $wpdb;
 
-        $wpdb->query($wpdb->prepare("UPDATE {$wpdb->options} SET option_value = %s WHERE option_name = %s", (string) time(), self::workerOption));
+        if (self::$owner !== '') {
+            $wpdb->query($wpdb->prepare(
+                "UPDATE {$wpdb->options} SET option_value = %s WHERE option_name = %s AND option_value LIKE %s",
+                time().':'.self::$owner,
+                self::workerOption,
+                '%:'.$wpdb->esc_like(self::$owner)
+            ));
+        }
     }
 
     private static function releaseWorker(): void
     {
         global $wpdb;
 
-        $wpdb->query($wpdb->prepare("DELETE FROM {$wpdb->options} WHERE option_name = %s", self::workerOption));
+        if (self::$owner !== '') {
+            $wpdb->query($wpdb->prepare(
+                "DELETE FROM {$wpdb->options} WHERE option_name = %s AND option_value LIKE %s",
+                self::workerOption,
+                '%:'.$wpdb->esc_like(self::$owner)
+            ));
+            self::$owner = '';
+        }
     }
 
     private static function workerAlive(): bool
     {
         global $wpdb;
 
-        $touchedAt = (int) $wpdb->get_var($wpdb->prepare("SELECT option_value FROM {$wpdb->options} WHERE option_name = %s", self::workerOption));
+        $touchedAt = (int) strtok((string) $wpdb->get_var($wpdb->prepare("SELECT option_value FROM {$wpdb->options} WHERE option_name = %s", self::workerOption)), ':');
 
         return $touchedAt > 0 && time() - $touchedAt < self::staleAfter;
     }

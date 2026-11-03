@@ -108,9 +108,13 @@ final class MediaCheck
     /** @var array<int, true> Originals whose translation was deleted in this request. */
     private static array $deleted = [];
 
+    /** @var array<int, true> Posts that came, went or changed status in this request. */
+    private static array $statusChanged = [];
+
     public static function init(): void
     {
         add_action('save_post', [self::class, 'onSave'], 20, 2);
+        add_action('transition_post_status', [self::class, 'onStatusChange'], 10, 3);
         add_action('shutdown', [self::class, 'checkSaved']);
         add_action(self::sweepHook, [self::class, 'sweep']);
         add_action(self::imagesHook, [self::class, 'checkImages']);
@@ -140,6 +144,17 @@ final class MediaCheck
         }
     }
 
+    /**
+     * @param  string  $new
+     * @param  string  $old
+     */
+    public static function onStatusChange($new, $old, $post): void
+    {
+        if ($post instanceof WP_Post && $new !== $old) {
+            self::$statusChanged[(int) $post->ID] = true;
+        }
+    }
+
     public static function onSave(int $postId, WP_Post $post): void
     {
         if (wp_is_post_revision($postId) || wp_is_post_autosave($postId) || ! pll_is_translated_post_type($post->post_type)) {
@@ -163,8 +178,10 @@ final class MediaCheck
         // Posts that got, or lost, a translation: the translations that link
         // them or list them in a query loop count them again.
         $needed = self::$deleted;
+        $changed = self::$statusChanged;
         self::$saved = [];
         self::$deleted = [];
+        self::$statusChanged = [];
         $patterns = [];
 
         foreach ($postIds as $postId) {
@@ -174,7 +191,9 @@ final class MediaCheck
 
             $language = pll_get_post_language((int) $postId);
 
-            if ($language && $language !== $default) {
+            // Only a translation that came, went or was published changes
+            // the pages linking its original; an edit of its text does not.
+            if ($language && $language !== $default && isset($changed[(int) $postId])) {
                 $needed[(int) pll_get_post((int) $postId, $default) ?: (int) $postId] = true;
             }
         }
@@ -297,7 +316,9 @@ final class MediaCheck
                 $patternIds = array_merge($patternIds, array_values(array_map('intval', pll_get_post_translations($patternId) ?: [$patternId])));
             }
 
-            update_option(self::recheckOption, ['posts' => $queue['posts'], 'patterns' => []], false);
+            // Read again just before writing: a save meanwhile may have queued more.
+            $current = self::recheckQueue();
+            update_option(self::recheckOption, ['posts' => $current['posts'], 'patterns' => array_values(array_diff($current['patterns'], $queue['patterns']))], false);
             // The pattern itself was checked when it was saved.
             self::queueRecheck(self::showing(array_values(array_unique($patternIds))));
             $queue = self::recheckQueue();
@@ -309,7 +330,8 @@ final class MediaCheck
             return false;
         }
 
-        update_option(self::recheckOption, ['posts' => array_slice($queue['posts'], self::sweepBatch), 'patterns' => []], false);
+        $current = self::recheckQueue();
+        update_option(self::recheckOption, ['posts' => array_values(array_diff($current['posts'], $batch)), 'patterns' => $current['patterns']], false);
 
         foreach ($batch as $postId) {
             self::check($postId);

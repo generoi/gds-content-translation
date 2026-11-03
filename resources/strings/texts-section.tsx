@@ -5,7 +5,7 @@
  * the missing ones and the AI review to check them.
  */
 import { Button, Flex, TextareaControl } from '@wordpress/components';
-import { createContext, useContext, useEffect, useMemo, useState } from '@wordpress/element';
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from '@wordpress/element';
 import { __, _n, sprintf } from '@wordpress/i18n';
 import { errorMessage } from '../api';
 import { DataViews, filterSortAndPaginate } from '../dataviews';
@@ -183,6 +183,7 @@ export function TextsSection( { data, onData, onDirty }: Props ) {
 	const drafts = useDrafts();
 	const [ view, setView ] = useState< View >( () => ( { ...defaultView, filters: data.missing[ lang ]?.texts ? [ { field: 'status', operator: 'isAny', value: [ 'missing' ] } ] : [] } ) );
 	const [ busy, setBusy ] = useState( '' );
+	const busyRef = useRef( '' );
 	const [ selection, setSelection ] = useState< string[] >( [] );
 	const dirty = drafts.dirty;
 
@@ -198,6 +199,12 @@ export function TextsSection( { data, onData, onDirty }: Props ) {
 
 	/** Runs a request; the drafts of the texts it saved are cleared, the others kept. */
 	const run = ( what: string, request: () => Promise< StringsResponse >, done: ( next: StringsResponse ) => string, saved: string[] = [] ) => {
+		// One at a time: the table's own actions are not disabled meanwhile.
+		if ( busyRef.current ) {
+			return Promise.resolve();
+		}
+
+		busyRef.current = what;
 		setBusy( what );
 
 		return request()
@@ -208,7 +215,10 @@ export function TextsSection( { data, onData, onDirty }: Props ) {
 				notifySuccess( done( next ) );
 			} )
 			.catch( ( caught: unknown ) => notifyError( errorMessage( caught, __( 'That did not work. Try again.', 'gds-content-translation' ) ) ) )
-			.finally( () => setBusy( '' ) );
+			.finally( () => {
+				busyRef.current = '';
+				setBusy( '' );
+			} );
 	};
 
 	const translatedMessage = ( next: StringsResponse ) =>

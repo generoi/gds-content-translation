@@ -206,7 +206,7 @@ class TranslationAuditTest extends AdminActionTestCase
         $this->assertSame($payload['target_language'], $payload['remark_language']);
 
         $this->assertSame('done', $review['status']);
-        $this->assertSame(md5(get_post($ids['fi'])->post_content), $review['contentHash']);
+        $this->assertSame(TranslationAudit::contentHash($ids['fi']), $review['contentHash']);
         // The "no change" remark, the one without a suggestion and the one
         // pointing nowhere are dropped: every remark left is one click.
         $this->assertSame([['id' => 1, 'segment' => 3, 'severity' => 'error', 'category' => 'grammar', 'issue' => 'Missing umlauts.', 'suggestion' => 'Lue lisää', 'state' => 'open']], $review['remarks']);
@@ -517,7 +517,7 @@ class TranslationAuditTest extends AdminActionTestCase
         $content = get_post($ids['fi'])->post_content;
 
         $this->assertSame('done', $review['status']);
-        $this->assertSame(md5($content), $review['contentHash'], 'Adding notes is not an edit.');
+        $this->assertSame(TranslationAudit::contentHash($ids['fi']), $review['contentHash'], 'Adding notes is not an edit.');
 
         foreach ($review['remarks'] as $remark) {
             $note = get_comment($remark['noteId']);
@@ -559,7 +559,7 @@ class TranslationAuditTest extends AdminActionTestCase
         $review = TranslationAudit::get($ids['fi']);
         $this->assertSame(['resolved', 'resolved'], array_column($review['remarks'], 'state'));
         $this->assertSame(['edited', 'suggestion'], array_column($review['remarks'], 'resolution'));
-        $this->assertSame(md5(get_post($ids['fi'])->post_content), $review['contentHash']);
+        $this->assertSame(TranslationAudit::contentHash($ids['fi']), $review['contentHash']);
         $this->assertSame('1', get_comment($review['remarks'][0]['noteId'])->comment_approved);
         $this->assertSame('done:0:0:'.$review['contentHash'], get_post_meta($ids['fi'], TranslationAudit::statusMetaKey, true));
     }

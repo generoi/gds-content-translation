@@ -35,6 +35,8 @@ class PageScanTest extends RestTestCase
 
     private int $pageCode = 200;
 
+    private string $redirectTo = '';
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -79,6 +81,18 @@ class PageScanTest extends RestTestCase
                 'usage' => ['input_tokens' => 100, 'output_tokens' => 20],
                 'content' => [['type' => 'text', 'text' => wp_json_encode(['findings' => $this->findings])]],
             ]));
+        }
+
+        if ($this->redirectTo !== '' && str_contains($url, 'example.org')) {
+            $this->pageRequests[] = ['url' => $url, 'args' => $args];
+
+            return ['headers' => ['location' => $this->redirectTo], 'body' => '', 'response' => ['code' => 301, 'message' => ''], 'cookies' => [], 'filename' => null];
+        }
+
+        if (str_contains($url, 'elsewhere.test')) {
+            $this->pageRequests[] = ['url' => $url, 'args' => $args];
+
+            return $response($this->html);
         }
 
         if (str_contains($url, 'example.org')) {
@@ -202,6 +216,20 @@ class PageScanTest extends RestTestCase
         $this->assertTrue($this->request('GET', '/scans/'.$ids['fi'])->get_data()['result']['changed']);
     }
 
+    public function test_a_check_that_waited_long_in_line_still_runs_and_frees_the_worker(): void
+    {
+        $ids = $this->translation();
+        $this->findings = [];
+        // Behind a long bulk run: shown as stuck, but still to be done.
+        update_post_meta($ids['fi'], '_gds_ct_page_scan_status', sprintf('queued:%d:%d', time() - 2 * DAY_IN_SECONDS, get_current_user_id()));
+
+        PageScan::work();
+
+        $this->assertSame('done', PageScan::status($ids['fi'])['status']);
+        $this->assertCount(1, $this->claudeRequests);
+        $this->assertFalse(get_option('gds_ct_page_scan_worker'), 'The worker gave its place back.');
+    }
+
     public function test_each_finding_gets_its_likely_source_and_a_link_to_fix_it(): void
     {
         $ids = $this->translation();
@@ -261,6 +289,19 @@ class PageScanTest extends RestTestCase
         $this->assertSame(LOGGED_IN_COOKIE, $cookie->name);
         $this->assertSame(get_userdata($userId)->user_login, wp_parse_auth_cookie($cookie->value, 'logged_in')['username']);
         $this->assertCount($sessions, WP_Session_Tokens::get_instance($userId)->get_all());
+    }
+
+    public function test_the_editors_login_does_not_follow_a_redirect_to_another_site(): void
+    {
+        $ids = $this->translation('draft');
+        $this->redirectTo = 'https://elsewhere.test/preview';
+
+        $result = PageScan::estimate($ids['fi'], get_current_user_id());
+
+        $this->assertInstanceOf(WP_Error::class, $result);
+        $this->assertSame('gds_ct_scan_host', $result->get_error_code());
+        $this->assertCount(1, $this->pageRequests, 'Nothing is sent to the other site.');
+        $this->assertSame(0, $this->pageRequests[0]['args']['redirection']);
     }
 
     public function test_the_preview_session_ends_after_the_request(): void

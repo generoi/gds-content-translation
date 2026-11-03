@@ -9,7 +9,7 @@
  * section above the remarks.
  */
 import { Button, ExternalLink, Spinner, __experimentalConfirmDialog as ConfirmDialog } from '@wordpress/components';
-import { useEffect, useState } from '@wordpress/element';
+import { useEffect, useRef, useState } from '@wordpress/element';
 import { __, _n, sprintf } from '@wordpress/i18n';
 import { errorMessage } from '../api';
 import { notifyError, notifySuccess } from '../ui/notify';
@@ -193,26 +193,41 @@ export function ScanList( { postId, onChange, onLoad }: Props ) {
 
 	const working = data?.status === 'queued' || data?.status === 'running';
 
-	// While the check runs in the background, ask how far it is.
+	// The parent's handler of the moment: a new one each render must not
+	// restart the timer below (the status screen renders every few seconds).
+	const onChangeRef = useRef( onChange );
 	useEffect( () => {
-		if ( ! working ) {
+		onChangeRef.current = onChange;
+	}, [ onChange ] );
+
+	// While the check runs in the background, ask how far it is; after a
+	// failed ask, again a little later, and after a few, say so and stop.
+	useEffect( () => {
+		if ( ! working || retry >= 5 ) {
 			return;
 		}
 
 		const timer = setTimeout( () => {
 			fetchScan( postId )
 				.then( ( next ) => {
+					setRetry( 0 );
 					setData( next );
 
 					if ( next.status !== 'queued' && next.status !== 'running' ) {
-						onChange?.( next );
+						onChangeRef.current?.( next );
 					}
 				} )
-				.catch( () => setRetry( ( count ) => count + 1 ) );
-		}, 4000 );
+				.catch( ( caught: unknown ) => {
+					if ( retry + 1 >= 5 ) {
+						notifyError( errorMessage( caught, __( 'Could not ask how far the check is. Reload the page.', 'gds-content-translation' ) ) );
+					}
+
+					setRetry( retry + 1 );
+				} );
+		}, 4000 * ( retry + 1 ) );
 
 		return () => clearTimeout( timer );
-	}, [ working, data, postId, retry, onChange ] );
+	}, [ working, data, postId, retry ] );
 
 	if ( failed ) {
 		return <p className="gds-ct-media__empty">{ failed }</p>;

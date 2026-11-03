@@ -105,8 +105,9 @@ final class ContentGaps
 
     /**
      * Query loops whose chosen posts or parent pages are not this language's.
-     * The original's loop at the same place says which posts were chosen
-     * where the translation has only 0.
+     * The original's loop of the same shape (at the same place, else the
+     * first like it) says which posts were chosen where the translation has
+     * only 0.
      *
      * @param  list<array{block: array<string, mixed>, in: int, index: int}>  $blocks
      * @param  list<array{block: array<string, mixed>, in: int, index: int}>  $sourceBlocks
@@ -120,9 +121,39 @@ final class ContentGaps
         $default = (string) pll_default_language('slug');
         $items = [];
 
+        // The original's loop is the same one only when it looks the same: a
+        // loop deleted or added in the translation shifts the places.
+        $shape = static function (array $entry): string {
+            $attrs = (array) ($entry['block']['attrs'] ?? []);
+            $query = (array) ($attrs['query'] ?? []);
+
+            return (string) wp_json_encode([
+                $query['postType'] ?? 'post',
+                count((array) ($query['include'] ?? [])),
+                count((array) ($query['parents'] ?? [])),
+                $query['perPage'] ?? null,
+                $attrs['metadata']['name'] ?? '',
+            ]);
+        };
+        $unused = $sourceQueries;
+
         foreach (array_values(array_filter($blocks, $isQuery)) as $position => $entry) {
             $query = (array) ($entry['block']['attrs']['query'] ?? []);
-            $sourceQuery = (array) ($sourceQueries[$position]['block']['attrs']['query'] ?? []);
+            $match = isset($unused[$position]) && $shape($unused[$position]) === $shape($entry) ? $position : null;
+
+            foreach ($match === null ? $unused : [] as $candidate => $sourceEntry) {
+                if ($shape($sourceEntry) === $shape($entry)) {
+                    $match = $candidate;
+                    break;
+                }
+            }
+
+            $sourceQuery = $match !== null ? (array) ($unused[$match]['block']['attrs']['query'] ?? []) : [];
+
+            if ($match !== null) {
+                unset($unused[$match]);
+            }
+
             $posts = [];
 
             foreach (['include', 'parents'] as $field) {
@@ -210,6 +241,9 @@ final class ContentGaps
     private static function pageItems(WP_Post $post, array $blocks, string $language, array &$references): array
     {
         $home = untrailingslashit((string) get_option('home'));
+        // A path from the root is the host's, not under the site's own path.
+        $parts = wp_parse_url($home);
+        $origin = ($parts['scheme'] ?? 'https').'://'.($parts['host'] ?? '').(isset($parts['port']) ? ':'.$parts['port'] : '');
         $urlAttributes = (array) apply_filters('gds_content_translation_link_url_attributes_by_block', ['core/button' => ['url']]);
         $default = (string) pll_default_language('slug');
         $items = [];
@@ -227,7 +261,7 @@ final class ContentGaps
 
             foreach (array_unique($urls) as $href) {
                 $href = html_entity_decode((string) $href, ENT_QUOTES, 'UTF-8');
-                $url = str_starts_with($href, '/') && ! str_starts_with($href, '//') ? $home.$href : $href;
+                $url = str_starts_with($href, '/') && ! str_starts_with($href, '//') ? $origin.$href : $href;
 
                 if (! str_starts_with(set_url_scheme($url, 'https'), set_url_scheme($home, 'https'))) {
                     continue;

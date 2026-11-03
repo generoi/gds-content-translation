@@ -5,7 +5,7 @@
  * the server; DeepL fills the missing ones, with the glossary.
  */
 import { Button, Flex, TextControl } from '@wordpress/components';
-import { createContext, useContext, useEffect, useMemo, useState } from '@wordpress/element';
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from '@wordpress/element';
 import { __, _n, sprintf } from '@wordpress/i18n';
 import { errorMessage } from '../api';
 import { DataViews } from '../dataviews';
@@ -118,6 +118,22 @@ export function AltsSection( { lang, language, missing, onMissing, onDirty }: Pr
 	const [ failed, setFailed ] = useState( '' );
 	const [ reload, setReload ] = useState( 0 );
 	const [ busy, setBusy ] = useState( '' );
+	// One request at a time: the table's own actions are not disabled meanwhile.
+	const busyRef = useRef( '' );
+	const start = ( what: string ) => {
+		if ( busyRef.current ) {
+			return false;
+		}
+
+		busyRef.current = what;
+		setBusy( what );
+
+		return true;
+	};
+	const done = () => {
+		busyRef.current = '';
+		setBusy( '' );
+	};
 	const [ selection, setSelection ] = useState< string[] >( [] );
 	const dirty = drafts.dirty;
 	const onlyMissing = ( view.filters ?? [] ).some( ( filter ) => filter.field === 'missing' && filter.value === 'missing' );
@@ -163,19 +179,22 @@ export function AltsSection( { lang, language, missing, onMissing, onDirty }: Pr
 		);
 
 	const translate = ( ids: number[] = [] ) => {
-		setBusy( 'translate' );
-		translateAlts( lang, ids )
-			.then( after( [], translated ) )
-			.catch( fail )
-			.finally( () => setBusy( '' ) );
+		if ( ! start( 'translate' ) ) {
+			return;
+		}
+
+		translateAlts( lang, ids ).then( after( [], translated ) ).catch( fail ).finally( done );
 	};
 
 	const save = () => {
-		setBusy( 'save' );
+		if ( ! start( 'save' ) ) {
+			return;
+		}
+
 		saveAlts( lang, drafts.changes() )
 			.then( after( dirty, () => __( 'Alt texts saved.', 'gds-content-translation' ) ) )
 			.catch( fail )
-			.finally( () => setBusy( '' ) );
+			.finally( done );
 	};
 
 	const actions = useMemo< Action< AltItem >[] >(

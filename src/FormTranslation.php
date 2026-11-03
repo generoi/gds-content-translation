@@ -187,10 +187,13 @@ final class FormTranslation
 
     private static function localUrl(string $url, string $slug): string
     {
-        $home = untrailingslashit((string) get_option('home'));
-        $absolute = str_starts_with($url, '/') && ! str_starts_with($url, '//') ? $home.$url : $url;
+        $home = wp_parse_url((string) get_option('home'));
+        $host = (string) ($home['host'] ?? '');
+        // A path from the root is the host's, not under the site's own path.
+        $origin = ($home['scheme'] ?? 'https').'://'.$host.(isset($home['port']) ? ':'.$home['port'] : '');
+        $absolute = str_starts_with($url, '/') && ! str_starts_with($url, '//') ? $origin.$url : $url;
 
-        if (strtolower((string) wp_parse_url($absolute, PHP_URL_HOST)) !== strtolower((string) wp_parse_url($home, PHP_URL_HOST))) {
+        if ($host === '' || strtolower((string) wp_parse_url($absolute, PHP_URL_HOST)) !== strtolower($host)) {
             return $url;
         }
 
@@ -207,7 +210,15 @@ final class FormTranslation
         $postId = url_to_postid($absolute);
         $translation = $postId > 0 ? (int) pll_get_post($postId, $slug) : 0;
 
-        return $translation > 0 && $translation !== $postId && get_post_status($translation) === 'publish' ? (string) get_permalink($translation) : $url;
+        if ($translation <= 0 || $translation === $postId || get_post_status($translation) !== 'publish') {
+            return $url;
+        }
+
+        // Its query (a prefilled field) and anchor stay.
+        $query = (string) wp_parse_url($absolute, PHP_URL_QUERY);
+        $fragment = (string) wp_parse_url($absolute, PHP_URL_FRAGMENT);
+
+        return (string) get_permalink($translation).($query !== '' ? (str_contains((string) get_permalink($translation), '?') ? '&' : '?').$query : '').($fragment !== '' ? '#'.$fragment : '');
     }
 
     public static function addLanguageField(string $tag, $form): string

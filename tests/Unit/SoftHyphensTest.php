@@ -28,4 +28,15 @@ class SoftHyphensTest extends WP_UnitTestCase
 
         $this->assertSame($body, SoftHyphens::removeFromRequest(['body' => $body], 'https://example.com/v2/translate')['body']);
     }
+
+    public function test_they_are_put_back_into_the_words_a_suggestion_kept(): void
+    {
+        $old = 'Pilari<span class="is-shy-character">&#173;</span>perustus ja terassi&shy;lauta';
+
+        $this->assertSame(
+            'Pilari<span class="is-shy-character">&#173;</span>perustus sekä terassi&shy;lauta',
+            SoftHyphens::restore($old, 'Pilariperustus sekä terassilauta')
+        );
+        $this->assertSame('Uusi teksti', SoftHyphens::restore($old, 'Uusi teksti'));
+    }
 }
