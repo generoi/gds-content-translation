@@ -514,6 +514,7 @@ class Admin
             'machineTranslation' => MachineTranslation::isAvailable(),
             'copyTranslation' => MachineTranslation::isCopyAvailable(),
             'review' => TranslationAudit::isEnabled(),
+            'hyphenation' => Hyphenation::isEnabled(),
             'followup' => TranslationAudit::settings()['followup'],
             'instructions' => TranslationAudit::settings()['instructions'],
             'instructionsMax' => TranslationAudit::instructionsMax,

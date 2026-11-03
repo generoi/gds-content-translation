@@ -50,6 +50,8 @@ export interface Settings {
 	machineTranslation: boolean;
 	copyTranslation: boolean;
 	review: boolean;
+	/** Soft hyphens are added to long words of headings and buttons. */
+	hyphenation?: boolean;
 	/** The site's default follow-up of the review of a new AI translation. */
 	followup: Followup;
 	/** Every follow-up with its title and one line of help, in order. */

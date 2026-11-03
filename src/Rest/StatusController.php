@@ -3,6 +3,7 @@
 namespace GeneroWP\ContentTranslation\Rest;
 
 use GeneroWP\ContentTranslation\Actions\Action;
+use GeneroWP\ContentTranslation\Actions\Hyphenate;
 use GeneroWP\ContentTranslation\Actions\PageScanAction;
 use GeneroWP\ContentTranslation\Actions\Proofread;
 use GeneroWP\ContentTranslation\Actions\Review;
@@ -297,7 +298,7 @@ final class StatusController
      */
     public static function actions(): array
     {
-        $actions = [new Proofread, new Review, new Translate, new TrashRow, new TrashRow(true), new PageScanAction];
+        $actions = [new Proofread, new Review, new Translate, new TrashRow, new TrashRow(true), new PageScanAction, new Hyphenate];
 
         foreach (TrashTranslation::operations as $operation) {
             $actions[] = new TrashTranslation($operation);

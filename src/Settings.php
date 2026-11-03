@@ -85,7 +85,10 @@ class Settings
         update_option(self::optionKey, array_values(array_diff($allSlugs, $visibleSlugs)));
 
         update_option(MachineTranslation::publishOption, isset($_POST['gds_ct_publish']));
-        update_option(SvgTranslation::autoOption, isset($_POST['gds_ct_svg_auto']));
+        // '1' or '0': false on an option not saved yet would not be saved, and
+        // these are on by default.
+        update_option(SvgTranslation::autoOption, isset($_POST['gds_ct_svg_auto']) ? '1' : '0');
+        update_option(Hyphenation::optionKey, isset($_POST['gds_ct_hyphenation']) ? '1' : '0');
         update_option(DocumentTranslation::optionKey, isset($_POST['gds_ct_documents']));
 
         $model = Request::key($_POST, 'gds_ct_audit_model');
@@ -247,6 +250,22 @@ class Settings
                                 <p class="description"><?php echo esc_html__('DeepL translates the text in an SVG, with the glossary, into a copy of the file in the translation’s language, which the translation then shows. Labels can be corrected afterwards. Costs about as much as a sentence of the page.', 'gds-content-translation'); ?></p>
                             </td>
                         </tr>
+                        <?php if (Hyphenation::isAvailable()) { ?>
+                        <tr>
+                            <th scope="row"><?php echo esc_html__('Soft hyphens', 'gds-content-translation'); ?></th>
+                            <td>
+                                <label>
+                                    <input type="checkbox" name="gds_ct_hyphenation" value="1" <?php checked((bool) get_option(Hyphenation::optionKey, true)); ?>>
+                                    <?php echo esc_html__('Add soft hyphens to the long words of headings and buttons', 'gds-content-translation'); ?>
+                                </label>
+                                <p class="description"><?php echo esc_html(sprintf(
+                                    /* translators: %d: number of letters */
+                                    __('Words of %d letters or more get a few places where a narrow screen may break them, by the language’s hyphenation rules, when a translation is created and when a suggestion is used. They show in the editor as soft hyphens to move or remove; a word that has one is left as it is. For originals and older translations: “Add soft hyphens…” on the status screen.', 'gds-content-translation'),
+                                    Hyphenation::minLength()
+                                )); ?></p>
+                            </td>
+                        </tr>
+                        <?php } ?>
                         <tr>
                             <th scope="row"><?php echo esc_html__('Documents', 'gds-content-translation'); ?></th>
                             <td>
