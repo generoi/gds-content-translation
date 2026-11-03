@@ -56,11 +56,17 @@ final class MediaCheck
     public const copyLanguageMetaKey = '_gds_content_translation_copy_language';
 
     /** Bumped when what is found changes, so the site is checked again. */
-    public const version = 2;
+    public const version = 3;
 
     private const versionOption = 'gds_content_translation_media_version';
 
     private const imageQueueOption = 'gds_content_translation_image_queue';
+
+    /** Images Claude could not check, by attachment ID: when to ask again. */
+    private const imageRetryOption = 'gds_content_translation_image_retry';
+
+    /** Posts and synced patterns to check again in the background ({@see queueRecheck()}). */
+    private const recheckOption = 'gds_content_translation_media_recheck';
 
     private const sweepHook = 'gds_content_translation_media_sweep';
 
@@ -73,7 +79,10 @@ final class MediaCheck
     private const imageBatch = 5;
 
     /** Larger files are not sent to Claude (its limit is 5 MB, base64). */
-    private const imageMaxBytes = 3_500_000;
+    public const imageMaxBytes = 3_500_000;
+
+    /** After a failed check, the first wait before asking Claude again; it grows fourfold each time, to a day. */
+    private const imageRetryDelay = 15 * MINUTE_IN_SECONDS;
 
     private const imageMimes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
 
@@ -131,39 +140,143 @@ final class MediaCheck
         self::$saved[$postId] = true;
     }
 
+    /**
+     * Check the saved posts now, so the editor sees their result. The pages
+     * that show a saved synced pattern can be many: they are checked in the
+     * background.
+     */
     public static function checkSaved(): void
     {
         $postIds = array_keys(self::$saved);
         self::$saved = [];
+        $patterns = [];
 
         foreach ($postIds as $postId) {
             if (get_post_type($postId) === 'wp_block') {
-                foreach (self::showing(array_values(array_map('intval', pll_get_post_translations($postId) ?: [$postId]))) as $pageId) {
-                    $postIds[] = $pageId;
-                }
+                $patterns[] = (int) $postId;
             }
         }
 
-        foreach (array_unique($postIds) as $postId) {
-            $language = pll_get_post_language($postId);
+        foreach (self::translationsOf($postIds) as $postId) {
+            self::check($postId);
+        }
+
+        if ($patterns !== []) {
+            self::queueRecheck([], $patterns);
+        }
+    }
+
+    /**
+     * The translations to check after these posts changed: a translation
+     * itself, an original's translations (what they still share with it
+     * changed). Each once.
+     *
+     * @param  list<int>  $postIds
+     * @return list<int>
+     */
+    private static function translationsOf(array $postIds): array
+    {
+        $default = (string) pll_default_language('slug');
+        $ids = [];
+
+        foreach ($postIds as $postId) {
+            $language = pll_get_post_language((int) $postId);
 
             if (! $language) {
                 continue;
             }
 
-            if ($language !== pll_default_language('slug')) {
-                self::check($postId);
+            if ($language !== $default) {
+                $ids[(int) $postId] = true;
 
                 continue;
             }
 
-            // An original's change changes what its translations still share with it.
-            foreach (pll_get_post_translations($postId) as $slug => $translationId) {
+            foreach (pll_get_post_translations((int) $postId) as $slug => $translationId) {
                 if ($slug !== $language) {
-                    self::check((int) $translationId);
+                    $ids[(int) $translationId] = true;
                 }
             }
         }
+
+        return array_keys($ids);
+    }
+
+    /**
+     * Check posts again in the background, a batch at a time ({@see sweep()}):
+     * these translations (or an original's), and the pages that show these
+     * synced patterns.
+     *
+     * @param  list<int>  $postIds
+     * @param  list<int>  $patternIds
+     */
+    public static function queueRecheck(array $postIds, array $patternIds = []): void
+    {
+        $queue = self::recheckQueue();
+        $merged = [
+            'posts' => array_values(array_unique(array_merge($queue['posts'], self::translationsOf(array_map('intval', $postIds))))),
+            'patterns' => array_values(array_unique(array_merge($queue['patterns'], array_map('intval', $patternIds)))),
+        ];
+
+        if ($merged !== $queue) {
+            update_option(self::recheckOption, $merged, false);
+        }
+
+        if ($merged['posts'] !== [] || $merged['patterns'] !== []) {
+            self::spawnSweep();
+        }
+    }
+
+    /**
+     * @return array{posts: list<int>, patterns: list<int>}
+     */
+    private static function recheckQueue(): array
+    {
+        $queue = get_option(self::recheckOption, []);
+        $queue = is_array($queue) ? $queue : [];
+
+        return [
+            'posts' => array_values(array_map('intval', (array) ($queue['posts'] ?? []))),
+            'patterns' => array_values(array_map('intval', (array) ($queue['patterns'] ?? []))),
+        ];
+    }
+
+    /**
+     * Check the next batch of queued posts; the queued patterns are first
+     * turned into the pages that show them.
+     *
+     * @return bool Whether it checked any.
+     */
+    private static function recheckQueued(): bool
+    {
+        $queue = self::recheckQueue();
+
+        if ($queue['patterns'] !== []) {
+            $patternIds = [];
+
+            foreach ($queue['patterns'] as $patternId) {
+                $patternIds = array_merge($patternIds, array_values(array_map('intval', pll_get_post_translations($patternId) ?: [$patternId])));
+            }
+
+            update_option(self::recheckOption, ['posts' => $queue['posts'], 'patterns' => []], false);
+            // The pattern itself was checked when it was saved.
+            self::queueRecheck(self::showing(array_values(array_unique($patternIds))));
+            $queue = self::recheckQueue();
+        }
+
+        $batch = array_slice($queue['posts'], 0, self::sweepBatch);
+
+        if ($batch === []) {
+            return false;
+        }
+
+        update_option(self::recheckOption, ['posts' => array_slice($queue['posts'], self::sweepBatch), 'patterns' => []], false);
+
+        foreach ($batch as $postId) {
+            self::check($postId);
+        }
+
+        return true;
     }
 
     /**
@@ -204,6 +317,13 @@ final class MediaCheck
     {
         if (get_post_type($postId) === 'attachment') {
             self::dequeueImages([$postId]);
+
+            $retries = self::imageRetries();
+
+            if (isset($retries[$postId])) {
+                unset($retries[$postId]);
+                self::saveImageRetries($retries);
+            }
         }
     }
 
@@ -230,12 +350,35 @@ final class MediaCheck
         $items = [];
         $waits = [];
         $ok = self::okKeys($postId);
+        // Images to send to Claude, of those waited on.
+        $ask = [];
 
         foreach (self::find($post, $default, (string) $language) as $key => $item) {
-            // In a pattern: an action changes the pattern, so only its translation's.
-            if (! empty($item['in'])) {
-                $item['inTitle'] = get_the_title((int) $item['in']);
-                $item['inOriginal'] = pll_get_post_language((int) $item['in']) !== $language;
+            // Where it is: the page (0) and the synced patterns it shows. An
+            // action changes the translation's own places, never the
+            // original's pattern.
+            $places = array_values(array_unique(array_map('intval', (array) ($item['places'] ?? [(int) ($item['in'] ?? 0)]))));
+            $own = array_values(array_filter($places, static fn (int $place): bool => $place === 0 || pll_get_post_language($place) === $language));
+            $originals = array_values(array_diff($places, $own));
+            $item['places'] = $own;
+            unset($item['in']);
+
+            if ($own === []) {
+                $item['in'] = $originals[0];
+                $item['inTitle'] = get_the_title($originals[0]);
+                $item['inOriginal'] = true;
+            } else {
+                $patterns = array_values(array_filter($own));
+
+                if ($patterns !== []) {
+                    $item['in'] = $patterns[0];
+                    $item['inTitle'] = get_the_title($patterns[0]);
+                    $item['inOriginal'] = false;
+                }
+
+                if ($originals !== []) {
+                    $item['inOriginalTitle'] = get_the_title($originals[0]);
+                }
             }
 
             // Only what the original shows too: anything else was chosen for this
@@ -251,11 +394,28 @@ final class MediaCheck
             }
 
             if ($item['kind'] === 'image') {
-                $found = self::imageText((int) $item['attachmentId']);
+                $checked = self::imageOwner((int) $item['attachmentId']);
+                $found = self::imageText($checked);
+
+                // Checked on this language's item before it was kept on one.
+                if ($found === null && $checked !== (int) $item['attachmentId'] && ($own = self::imageText((int) $item['attachmentId'])) !== null) {
+                    $found = $own;
+                    $checked = (int) $item['attachmentId'];
+                }
 
                 if ($found === null) {
                     $item['state'] = 'unchecked';
-                    $waits[] = (int) $item['attachmentId'];
+                    $waits[] = $checked;
+                    $ask[] = $checked;
+                } elseif ($found['status'] === 'failed' || $found['status'] === 'skipped') {
+                    // Not known to have no words: listed, to look at.
+                    $item['state'] = isset($ok[$key]) ? 'ok' : 'not-checked';
+                    $item['notChecked'] = $found['reason'] ?? '';
+
+                    if ($found['status'] === 'failed') {
+                        // Asked again from the image queue, and this checked again then.
+                        $waits[] = $checked;
+                    }
                 } elseif ($found['status'] !== 'text') {
                     continue;
                 } else {
@@ -288,8 +448,8 @@ final class MediaCheck
             add_post_meta($postId, self::waitsMetaKey, $attachmentId);
         }
 
-        if ($waits !== []) {
-            self::queueImages($waits);
+        if ($ask !== []) {
+            self::queueImages(array_values(array_unique($ask)));
         }
 
         return $result;
@@ -316,8 +476,9 @@ final class MediaCheck
     }
 
     /**
-     * Check again the translations whose last check found an item, after
-     * something about it changed (a form's translations).
+     * Check again, in the background, the translations whose last check
+     * found an item, after something about it changed (a form's
+     * translations): a form can be on every page.
      */
     public static function recheckUsing(string $key): void
     {
@@ -329,9 +490,7 @@ final class MediaCheck
             '%'.$wpdb->esc_like(serialize($key)).'%'
         ));
 
-        foreach (array_map('intval', $postIds) as $postId) {
-            self::check($postId);
-        }
+        self::queueRecheck(array_map('intval', $postIds));
     }
 
     private static function forget(int $postId): void
@@ -427,6 +586,13 @@ final class MediaCheck
      */
     public static function sweep(): void
     {
+        // What changed comes first: the posts queued to be checked again.
+        if (self::recheckQueued()) {
+            wp_schedule_single_event(time() + 5, self::sweepHook);
+
+            return;
+        }
+
         $default = (string) pll_default_language('slug');
         $postTypes = array_values(array_filter(get_post_types(), 'pll_is_translated_post_type'));
 
@@ -497,21 +663,33 @@ final class MediaCheck
     /**
      * Everything a post shows that is not its text, by key. The same file,
      * form or address has the same key in the original and its translations.
+     * `places` lists where it is: 0 for the post itself, else a synced
+     * pattern it shows.
      *
      * @return array<string, array<string, mixed>>
      */
     public static function find(WP_Post $post, string $sourceSlug, string $targetSlug): array
     {
         $items = [];
-        $add = static function (array $item) use (&$items): void {
-            $items[$item['key']] ??= $item;
+        // The same file can be on the page and in a pattern, or in two:
+        // every place it is in is kept (`places`, 0 for the page itself).
+        $add = static function (array $item, int $in = 0) use (&$items): void {
+            $key = $item['key'];
+
+            if (! isset($items[$key])) {
+                $items[$key] = $item + ['places' => []];
+            }
+
+            if (! in_array($in, $items[$key]['places'], true)) {
+                $items[$key]['places'][] = $in;
+            }
         };
 
         // A synced pattern's content shows on the page too: what is in it is
-        // listed with the pattern it is in (`in`), which an action changes.
+        // listed with the pattern it is in, which an action changes.
         $seen = [$post->ID => true];
         $scan = static function (string $content, int $in) use (&$scan, &$seen, $add, $sourceSlug, $targetSlug): void {
-            $addIn = static fn (array $item) => $add($in > 0 ? $item + ['in' => $in] : $item);
+            $addIn = static fn (array $item) => $add($item, $in);
 
             $walk = static function (array $blocks) use (&$walk, &$scan, &$seen, $addIn, $sourceSlug, $targetSlug): void {
                 foreach ($blocks as $block) {
@@ -587,7 +765,7 @@ final class MediaCheck
      * @param  array<string, mixed>  $attrs
      * @return list<int>
      */
-    private static function attachmentIds(array $attrs): array
+    public static function attachmentIds(array $attrs): array
     {
         $ids = [];
 
@@ -855,10 +1033,29 @@ final class MediaCheck
     }
 
     /**
+     * The attachment an image's check is kept on. With Polylang's media
+     * translation each language has its own item of the same file: the
+     * file is checked once, on the default language's (or the first) item.
+     */
+    public static function imageOwner(int $attachmentId): int
+    {
+        if (! pll_is_translated_post_type('attachment')) {
+            return $attachmentId;
+        }
+
+        $translations = array_map('intval', pll_get_post_translations($attachmentId));
+        $owner = $translations[(string) pll_default_language('slug')] ?? ($translations !== [] ? min($translations) : 0);
+
+        return $owner > 0 && get_attached_file($owner) === get_attached_file($attachmentId) ? $owner : $attachmentId;
+    }
+
+    /**
      * What Claude found in an image: null when it has not looked yet (or
-     * the file changed since).
+     * the file changed since, or it is time to ask again after a failure).
+     * `failed` (Claude did not answer) and `skipped` (the file could not be
+     * sent) say why in `reason`.
      *
-     * @return array{status: string, texts: list<string>}|null
+     * @return array{status: string, texts: list<string>, reason?: string}|null
      */
     public static function imageText(int $attachmentId): ?array
     {
@@ -868,14 +1065,30 @@ final class MediaCheck
             return null;
         }
 
-        if (($found['status'] ?? '') === 'failed') {
-            // Tried again after a day.
-            return (int) ($found['checkedAt'] ?? 0) < time() - DAY_IN_SECONDS ? null : ['status' => 'failed', 'texts' => []];
+        $status = (string) ($found['status'] ?? '');
+
+        if ($status === 'failed' && (int) ($found['checkedAt'] ?? 0) + self::imageRetryAfter((int) ($found['attempts'] ?? 1)) <= time()) {
+            return null;
         }
 
-        return ['status' => (string) ($found['status'] ?? ''), 'texts' => array_values(array_map('strval', (array) ($found['texts'] ?? [])))];
+        if ($status === 'failed' || $status === 'skipped') {
+            return ['status' => $status, 'texts' => [], 'reason' => (string) ($found['reason'] ?? ($status === 'failed' ? 'failed' : 'unreadable'))];
+        }
+
+        return ['status' => $status, 'texts' => array_values(array_map('strval', (array) ($found['texts'] ?? [])))];
     }
 
+    /**
+     * Seconds to wait before asking Claude again after this many failures.
+     */
+    private static function imageRetryAfter(int $attempts): int
+    {
+        return (int) min(DAY_IN_SECONDS, self::imageRetryDelay * 4 ** max(0, $attempts - 1));
+    }
+
+    /**
+     * The file as it is: a changed (or a newly readable) file is checked again.
+     */
     private static function imageSignature(int $attachmentId): string
     {
         $file = get_attached_file($attachmentId);
@@ -914,6 +1127,24 @@ final class MediaCheck
     }
 
     /**
+     * @return array<int, int> Attachment ID => when to ask again.
+     */
+    private static function imageRetries(): array
+    {
+        $retries = get_option(self::imageRetryOption, []);
+
+        return is_array($retries) ? array_map('intval', $retries) : [];
+    }
+
+    /**
+     * @param  array<int, int>  $retries
+     */
+    private static function saveImageRetries(array $retries): void
+    {
+        update_option(self::imageRetryOption, $retries, false);
+    }
+
+    /**
      * Images waiting for Claude to look at them.
      */
     public static function queuedImages(): int
@@ -927,18 +1158,38 @@ final class MediaCheck
      */
     public static function checkImages(): void
     {
+        // Images Claude failed to check, whose time to ask again has come.
+        $retries = self::imageRetries();
+        $due = array_keys(array_filter($retries, static fn (int $at): bool => $at <= time()));
+
+        if ($due !== []) {
+            self::saveImageRetries(array_diff_key($retries, array_flip($due)));
+            // Only while a translation still shows it.
+            $due = array_values(array_filter($due, static fn (int $attachmentId): bool => self::waitingOn($attachmentId) !== []));
+            $queue = array_map('intval', (array) get_option(self::imageQueueOption, []));
+            update_option(self::imageQueueOption, array_values(array_unique(array_merge($queue, $due))), false);
+        }
+
         $queue = array_values(array_map('intval', (array) get_option(self::imageQueueOption, [])));
         $batch = array_slice($queue, 0, self::imageBatch);
 
-        if ($batch === []) {
-            return;
+        if ($batch !== []) {
+            self::dequeueImages($batch);
         }
-
-        self::dequeueImages($batch);
 
         foreach ($batch as $attachmentId) {
             if (self::imageText($attachmentId) === null) {
+                $before = get_post_meta($attachmentId, self::imageMetaKey, true);
                 $result = self::askAboutImage($attachmentId);
+
+                if ($result['status'] === 'failed') {
+                    $sameFile = is_array($before) && ($before['status'] ?? '') === 'failed' && ($before['signature'] ?? '') === self::imageSignature($attachmentId);
+                    $result['attempts'] = $sameFile ? (int) ($before['attempts'] ?? 1) + 1 : 1;
+                    $retries = self::imageRetries();
+                    $retries[$attachmentId] = time() + self::imageRetryAfter($result['attempts']);
+                    self::saveImageRetries($retries);
+                }
+
                 update_post_meta($attachmentId, self::imageMetaKey, $result + [
                     'signature' => self::imageSignature($attachmentId),
                     'checkedAt' => time(),
@@ -952,6 +1203,8 @@ final class MediaCheck
 
         if (count($queue) > count($batch)) {
             wp_schedule_single_event(time() + 2, self::imagesHook);
+        } elseif (($retries = self::imageRetries()) !== [] && ! wp_next_scheduled(self::imagesHook)) {
+            wp_schedule_single_event(max(time() + 2, min($retries)), self::imagesHook);
         }
     }
 
@@ -973,14 +1226,14 @@ final class MediaCheck
      * Ask Claude whether an image has words a reader of a translation would
      * need in their own language.
      *
-     * @return array{status: string, texts: list<string>, error?: string}
+     * @return array{status: string, texts: list<string>, reason?: string, error?: string}
      */
     private static function askAboutImage(int $attachmentId): array
     {
         $file = self::imageFileToSend($attachmentId);
 
-        if ($file === null) {
-            return ['status' => 'skipped', 'texts' => []];
+        if (is_string($file)) {
+            return ['status' => 'skipped', 'texts' => [], 'reason' => $file];
         }
 
         $default = PLL()->model->get_language((string) pll_default_language('slug'));
@@ -1008,7 +1261,7 @@ final class MediaCheck
         if ($answer instanceof WP_Error) {
             error_log(sprintf('[gds-content-translation] Checking image %d for text failed: %s', $attachmentId, $answer->get_error_message()));
 
-            return ['status' => 'failed', 'texts' => [], 'error' => $answer->get_error_message()];
+            return ['status' => 'failed', 'texts' => [], 'reason' => 'failed', 'error' => $answer->get_error_message()];
         }
 
         $texts = array_values(array_filter(array_map(
@@ -1021,16 +1274,18 @@ final class MediaCheck
 
     /**
      * The image file to show Claude: its "large" size when there is one,
-     * which is enough to read text and costs less, else the original.
+     * which is enough to read text and costs less, else the original. Why
+     * not, when it cannot be sent: `unreadable` (missing, or kept elsewhere
+     * by an offload plugin) or `too-large`.
      *
-     * @return array{path: string, mime: string}|null
+     * @return array{path: string, mime: string}|string
      */
-    private static function imageFileToSend(int $attachmentId): ?array
+    private static function imageFileToSend(int $attachmentId): array|string
     {
         $original = get_attached_file($attachmentId);
 
         if (! $original || ! is_readable($original)) {
-            return null;
+            return 'unreadable';
         }
 
         $path = $original;
@@ -1043,8 +1298,12 @@ final class MediaCheck
 
         $mime = (string) (wp_check_filetype($path)['type'] ?? '');
 
-        if (! in_array($mime, self::imageMimes, true) || filesize($path) > self::imageMaxBytes) {
-            return null;
+        if (! in_array($mime, self::imageMimes, true)) {
+            return 'unreadable';
+        }
+
+        if (filesize($path) > self::imageMaxBytes) {
+            return 'too-large';
         }
 
         return ['path' => $path, 'mime' => $mime];

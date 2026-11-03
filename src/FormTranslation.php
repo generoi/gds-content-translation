@@ -2,6 +2,7 @@
 
 namespace GeneroWP\ContentTranslation;
 
+use PLL_Language;
 use WP_Error;
 
 if (! defined('ABSPATH')) {
@@ -35,6 +36,12 @@ final class FormTranslation
     /** Texts per Claude call when the AI review checks a form. */
     private const reviewChunk = 80;
 
+    /** Gravity Forms merge tags: {all_fields}, {Name:1}, {form_title}, {entry_id}… */
+    private const mergeTagPattern = '/\{[^{}<>\r\n]+\}/';
+
+    /** Whether the locale was switched to a submission's language, to switch back. */
+    private static bool $localeSwitched = false;
+
     public static function init(): void
     {
         if (! self::isAvailable()) {
@@ -44,6 +51,14 @@ final class FormTranslation
         foreach (['gform_pre_render', 'gform_pre_validation', 'gform_pre_submission_filter'] as $filter) {
             add_filter($filter, [self::class, 'translateForm'], 5);
         }
+
+        // An AJAX submission's request is in the default locale: Gravity
+        // Forms' own messages ("This field is required.") in the visitor's.
+        add_action('gform_ajax_pre_submit_form', [self::class, 'switchLocale']);
+        add_filter('gform_pre_validation', [self::class, 'switchLocale'], 1);
+        add_filter('gform_pre_render', [self::class, 'switchLocale'], 1);
+        add_filter('gform_get_form_filter', [self::class, 'restoreLocale'], 999);
+        add_filter('gform_ajax_submission_result', [self::class, 'restoreLocale'], 999);
 
         add_filter('gform_form_tag', [self::class, 'addLanguageField'], 10, 2);
         add_filter('gform_notification', [self::class, 'translateNotification'], 10, 3);
@@ -66,10 +81,54 @@ final class FormTranslation
     public static function currentLanguage(): string
     {
         $default = (string) pll_default_language('slug');
-        $posted = isset($_POST[self::langField]) && is_string($_POST[self::langField]) ? sanitize_key(wp_unslash($_POST[self::langField])) : '';
-        $slug = $posted !== '' && in_array($posted, pll_languages_list(), true) ? $posted : (string) pll_current_language('slug');
+        $posted = self::postedLanguage();
+        $slug = $posted !== '' ? $posted : (string) pll_current_language('slug');
 
         return $slug !== $default ? $slug : '';
+    }
+
+    /**
+     * The language a submission says it is in, when it is one of the site's.
+     */
+    private static function postedLanguage(): string
+    {
+        $posted = isset($_POST[self::langField]) && is_string($_POST[self::langField]) ? sanitize_key(wp_unslash($_POST[self::langField])) : '';
+
+        return $posted !== '' && in_array($posted, pll_languages_list(), true) ? $posted : '';
+    }
+
+    /**
+     * Switch to the locale of a submission's language, when the request is
+     * in another (an AJAX submission), until {@see restoreLocale()}.
+     *
+     * @param  mixed  $value  A filter's value, returned as it is.
+     * @return mixed
+     */
+    public static function switchLocale($value = null)
+    {
+        $posted = self::postedLanguage();
+        $language = $posted !== '' && ! self::$localeSwitched ? PLL()->model->get_language($posted) : false;
+
+        if ($language && $language->locale !== '') {
+            // False when the request is in that locale already.
+            self::$localeSwitched = switch_to_locale($language->locale);
+        }
+
+        return $value;
+    }
+
+    /**
+     * @param  mixed  $value  A filter's value, returned as it is.
+     * @return mixed
+     */
+    public static function restoreLocale($value = null)
+    {
+        if (self::$localeSwitched) {
+            restore_previous_locale();
+            self::$localeSwitched = false;
+        }
+
+        return $value;
     }
 
     /**
@@ -531,7 +590,16 @@ final class FormTranslation
      */
     public static function save(int $formId, string $slug, array $translations): void
     {
-        $stored = self::stored($formId);
+        self::store($formId, self::withTranslations(self::stored($formId), $slug, $translations));
+    }
+
+    /**
+     * @param  array{strings: array<string, array<string, string>>, remarks: array<string, array<string, mixed>>}  $stored
+     * @param  array<string, string>  $translations
+     * @return array{strings: array<string, array<string, string>>, remarks: array<string, array<string, mixed>>}
+     */
+    private static function withTranslations(array $stored, string $slug, array $translations): array
+    {
         $current = (array) ($stored['strings'][$slug] ?? []);
 
         foreach ($translations as $source => $translation) {
@@ -546,7 +614,8 @@ final class FormTranslation
         }
 
         $stored['strings'][$slug] = $current;
-        self::store($formId, $stored);
+
+        return $stored;
     }
 
     private static function clean(string $source, string $translation): string
@@ -576,7 +645,7 @@ final class FormTranslation
             return 0;
         }
 
-        $translated = DeeplApi::translate($missing, $default, $language, true);
+        $translated = self::deeplTranslate($missing, $default, $language);
 
         if ($translated instanceof WP_Error) {
             return $translated;
@@ -585,6 +654,65 @@ final class FormTranslation
         self::save($formId, $slug, array_combine($missing, $translated));
 
         return count($missing);
+    }
+
+    /**
+     * DeepL's translations of a form's texts, with their merge tags
+     * ({all_fields}, {Name:1}) as they are: each is sent in a `translate="no"`
+     * span, as HTML, and put back after.
+     *
+     * @param  list<string>  $texts
+     * @return list<string>|WP_Error
+     */
+    public static function deeplTranslate(array $texts, PLL_Language $source, PLL_Language $target): array|WP_Error
+    {
+        $tags = [];
+        $plain = [];
+        $sent = [];
+
+        foreach (array_values($texts) as $index => $text) {
+            if (! preg_match(self::mergeTagPattern, $text)) {
+                $sent[] = $text;
+
+                continue;
+            }
+
+            // A text without HTML is sent as HTML now: its own "<" and "&" as entities.
+            $plain[$index] = $text === wp_strip_all_tags($text);
+            $html = $plain[$index] ? htmlspecialchars($text, ENT_NOQUOTES, 'UTF-8') : $text;
+            // Not in a tag's attributes (a link to {embed_url}).
+            $parts = preg_split('/(<[^>]*>)/', $html, -1, PREG_SPLIT_DELIM_CAPTURE) ?: [$html];
+
+            foreach ($parts as $part => $content) {
+                if ($part % 2 === 0) {
+                    $parts[$part] = (string) preg_replace_callback(self::mergeTagPattern, static function (array $match) use (&$tags): string {
+                        $tags[] = $match[0];
+
+                        return '<span translate="no" data-gds-ct-tag="'.(count($tags) - 1).'">'.$match[0].'</span>';
+                    }, $content);
+                }
+            }
+
+            $sent[] = implode('', $parts);
+        }
+
+        $translated = DeeplApi::translate($sent, $source, $target, true);
+
+        if ($translated instanceof WP_Error) {
+            return $translated;
+        }
+
+        foreach ($plain as $index => $isPlain) {
+            $text = (string) $translated[$index];
+            $text = $isPlain ? html_entity_decode($text, ENT_QUOTES | ENT_HTML5, 'UTF-8') : $text;
+            $translated[$index] = (string) preg_replace_callback(
+                '#<span\b[^>]*\bdata-gds-ct-tag=["\']?(\d+)["\']?[^>]*>.*?</span>#s',
+                static fn (array $match): string => $tags[(int) $match[1]] ?? $match[0],
+                $text
+            );
+        }
+
+        return $translated;
     }
 
     /**
@@ -675,11 +803,12 @@ final class FormTranslation
         $stored = self::stored($formId);
         $remark = $stored['remarks'][$slug][$source] ?? null;
         unset($stored['remarks'][$slug][$source]);
-        self::store($formId, $stored);
 
         if ($use && is_array($remark)) {
-            self::save($formId, $slug, [$source => (string) $remark['suggestion']]);
+            $stored = self::withTranslations($stored, $slug, [$source => (string) $remark['suggestion']]);
         }
+
+        self::store($formId, $stored);
     }
 
     /**

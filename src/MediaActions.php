@@ -118,29 +118,42 @@ final class MediaActions
 
         $attachmentId = (int) ($item['attachmentId'] ?? 0);
         $value = $args['value'] ?? '';
-        $pageId = $postId;
-        // What is in a pattern is changed there.
-        $postId = (int) ($item['in'] ?? 0) ?: $postId;
+        // Where it is changed: in each of the translation's own places (the
+        // page, its patterns), the pattern the list names first. A DeepL
+        // job is kept on that one.
+        $main = (int) ($item['in'] ?? 0) ?: $postId;
+        $places = array_values(array_unique(array_merge([$main], array_map(static fn ($place): int => (int) $place ?: $postId, (array) ($item['places'] ?? [0])))));
+        $draftId = (int) (DocumentTranslation::jobs($main)[(string) $attachmentId]['attachmentId'] ?? 0);
+        $result = true;
 
-        $result = match ($action) {
-            'replace' => match ($item['kind']) {
-                'form' => MediaReplace::form($postId, (int) $item['formId'], (int) $value),
-                'embed', 'link' => MediaReplace::url($postId, (string) $item['url'], (string) $value),
-                default => $attachmentId > 0
-                    ? MediaReplace::attachment($postId, $attachmentId, (int) $value)
-                    : new WP_Error('gds_ct_media_not_library', __('This file is not in the media library: change its link in the editor.', 'gds-content-translation')),
-            },
-            'restore' => MediaReplace::attachment($postId, $attachmentId, (int) ($item['copyOf'] ?? 0)),
-            'svg-translate' => SvgTranslation::translateFor($postId, $attachmentId),
-            'svg-labels' => SvgTranslation::translateFor($postId, $attachmentId, array_map('strval', (array) ($args['labels'] ?? []))),
-            'document-translate' => DocumentTranslation::start($postId, $attachmentId),
-            'document-use' => DocumentTranslation::useDraft($postId, $attachmentId),
-            'document-discard' => DocumentTranslation::discard($postId, $attachmentId),
-            default => new WP_Error('gds_ct_media_action', __('Unknown action.', 'gds-content-translation')),
-        };
+        foreach ($places as $place) {
+            $first = $place === $main;
 
-        if ($postId !== $pageId) {
-            MediaCheck::check($pageId);
+            $result = match ($action) {
+                'replace' => match ($item['kind']) {
+                    'form' => MediaReplace::form($place, (int) $item['formId'], (int) $value),
+                    'embed', 'link' => MediaReplace::url($place, (string) $item['url'], (string) $value),
+                    default => $attachmentId > 0
+                        ? MediaReplace::attachment($place, $attachmentId, (int) $value)
+                        : new WP_Error('gds_ct_media_not_library', __('This file is not in the media library: change its link in the editor.', 'gds-content-translation')),
+                },
+                'restore' => MediaReplace::attachment($place, $attachmentId, (int) ($item['copyOf'] ?? 0)),
+                'svg-translate' => SvgTranslation::translateFor($place, $attachmentId),
+                // The labels are the copy's: written once.
+                'svg-labels' => $first ? SvgTranslation::translateFor($place, $attachmentId, array_map('strval', (array) ($args['labels'] ?? []))) : true,
+                'document-translate' => $first ? DocumentTranslation::start($place, $attachmentId) : true,
+                'document-use' => $first ? DocumentTranslation::useDraft($place, $attachmentId) : MediaReplace::attachment($place, $attachmentId, $draftId),
+                'document-discard' => $first ? DocumentTranslation::discard($place, $attachmentId) : true,
+                default => new WP_Error('gds_ct_media_action', __('Unknown action.', 'gds-content-translation')),
+            };
+
+            if ($result instanceof WP_Error) {
+                break;
+            }
+        }
+
+        if ($places !== [$postId]) {
+            MediaCheck::check($postId);
         }
 
         return $result instanceof WP_Error ? $result : true;

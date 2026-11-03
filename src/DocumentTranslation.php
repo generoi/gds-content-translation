@@ -310,10 +310,17 @@ final class DocumentTranslation
 
     /**
      * Forget a job; a draft it made stays in the media library for the
-     * other translations in its language.
+     * other translations in its language. Not while DeepL translates: the
+     * file is billed already, and its draft is saved when it is ready.
      */
-    public static function discard(int $postId, int $sourceId): true
+    public static function discard(int $postId, int $sourceId): true|WP_Error
     {
+        $job = self::jobs($postId)[(string) $sourceId] ?? null;
+
+        if (is_array($job) && ($job['status'] ?? '') === 'translating') {
+            return new WP_Error('gds_ct_document_running', __('DeepL is still translating the file, which is billed already. Its draft is ready shortly: then use it or leave it.', 'gds-content-translation'));
+        }
+
         self::saveJob($postId, $sourceId, null);
 
         return true;
