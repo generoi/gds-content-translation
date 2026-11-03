@@ -49,6 +49,12 @@ final class MediaCheck
     /** On an attachment: what Claude found in it. */
     public const imageMetaKey = '_gds_content_translation_image_text';
 
+    /** On a translated copy of a file (an SVG, a DeepL document): the file it translates. */
+    public const copyOfMetaKey = '_gds_content_translation_copy_of';
+
+    /** On a translated copy: its language's slug. */
+    public const copyLanguageMetaKey = '_gds_content_translation_copy_language';
+
     /** Bumped when what is found changes, so the site is checked again. */
     public const version = 1;
 
@@ -77,6 +83,9 @@ final class MediaCheck
     private const svgMaxBytes = 2_000_000;
 
     public const kinds = ['document', 'svg', 'image', 'form', 'embed', 'link'];
+
+    /** Block attributes that hold media library IDs. */
+    public const attachmentAttributePattern = '/^(id|ids|mediaId|mediaIds|imageId|imageIds|.+(Image|Media)Ids?)$/';
 
     /** @var array<int, true> Posts saved in this request, checked at its end. */
     private static array $saved = [];
@@ -181,8 +190,15 @@ final class MediaCheck
         $ok = self::okKeys($postId);
 
         foreach (self::find($post, $default, (string) $language) as $key => $item) {
-            // Only what the original shows too: anything else was chosen for this translation.
+            // Only what the original shows too: anything else was chosen for this
+            // translation. A translated copy made here is listed, to correct it.
             if (! isset($sourceItems[$key])) {
+                $copyOf = (int) ($item['attachmentId'] ?? 0) > 0 ? (int) get_post_meta((int) $item['attachmentId'], self::copyOfMetaKey, true) : 0;
+
+                if ($copyOf > 0) {
+                    $items[] = $item + ['state' => 'translated', 'copyOf' => $copyOf];
+                }
+
                 continue;
             }
 
@@ -197,6 +213,11 @@ final class MediaCheck
                 } else {
                     $item['texts'] = $found['texts'];
                 }
+            }
+
+            // A form translated into the language is handled where it is shown.
+            if ($item['kind'] === 'form' && FormTranslation::isComplete((int) $item['formId'], (string) $language)) {
+                $item['state'] = 'translated';
             }
 
             $item['state'] ??= isset($ok[$key]) ? 'ok' : 'open';
@@ -224,6 +245,45 @@ final class MediaCheck
         }
 
         return $result;
+    }
+
+    /**
+     * The translated copy of a file in a language, if there is one.
+     */
+    public static function copyOf(int $sourceId, string $slug): int
+    {
+        $ids = get_posts([
+            'post_type' => 'attachment',
+            'post_status' => 'inherit',
+            'posts_per_page' => 1,
+            'fields' => 'ids',
+            'lang' => '',
+            'meta_query' => [
+                ['key' => self::copyOfMetaKey, 'value' => $sourceId],
+                ['key' => self::copyLanguageMetaKey, 'value' => $slug],
+            ],
+        ]);
+
+        return (int) ($ids[0] ?? 0);
+    }
+
+    /**
+     * Check again the translations whose last check found an item, after
+     * something about it changed (a form's translations).
+     */
+    public static function recheckUsing(string $key): void
+    {
+        global $wpdb;
+
+        $postIds = $wpdb->get_col($wpdb->prepare(
+            "SELECT post_id FROM {$wpdb->postmeta} WHERE meta_key = %s AND meta_value LIKE %s",
+            self::metaKey,
+            '%'.$wpdb->esc_like(serialize($key)).'%'
+        ));
+
+        foreach (array_map('intval', $postIds) as $postId) {
+            self::check($postId);
+        }
     }
 
     private static function forget(int $postId): void
@@ -466,7 +526,7 @@ final class MediaCheck
         $ids = [];
 
         foreach ($attrs as $name => $value) {
-            if (! is_string($name) || ! preg_match('/^(id|ids|mediaId|mediaIds|imageId|imageIds|.+(Image|Media)Ids?)$/', $name)) {
+            if (! is_string($name) || ! preg_match(self::attachmentAttributePattern, $name)) {
                 continue;
             }
 
@@ -681,7 +741,7 @@ final class MediaCheck
         $texts = [];
 
         foreach ($matches[2] as $inner) {
-            $text = trim((string) preg_replace('/\s+/u', ' ', html_entity_decode(wp_strip_all_tags($inner), ENT_QUOTES | ENT_XML1, 'UTF-8')));
+            $text = trim((string) preg_replace('/\s+/u', ' ', html_entity_decode((string) preg_replace('/<[^>]*>/', ' ', $inner), ENT_QUOTES | ENT_XML1, 'UTF-8')));
 
             if ($text !== '' && preg_match('/\p{L}{2,}/u', $text)) {
                 $texts[] = $text;
@@ -934,14 +994,22 @@ final class MediaCheck
     {
         $result = self::get($postId) ?? ['items' => [], 'open' => 0, 'unchecked' => 0, 'checkedAt' => 0];
         $default = PLL()->model->get_language((string) pll_default_language('slug'));
+        $language = PLL()->model->post->get_language($postId);
+        $items = MediaActions::describe($postId, array_values($result['items']));
+        $offers = array_merge(...array_map(static fn (array $item): array => $item['actions'], $items ?: [['actions' => []]]));
 
         return [
-            'items' => array_values($result['items']),
+            'items' => $items,
             'open' => (int) $result['open'],
             'unchecked' => (int) $result['unchecked'],
             'canCheckImages' => TranslationAudit::isConfigured(),
             'sourceLanguage' => $default ? StatusList::languageName($default) : '',
+            'targetLanguage' => $language ? StatusList::languageName($language) : '',
             'editUrl' => (string) get_edit_post_link($postId, 'raw'),
+            // What the choices need: the forms to pick from, what a DeepL document costs.
+            'forms' => in_array('replace', $offers, true) && in_array('form', array_column($items, 'kind'), true) ? MediaActions::forms() : [],
+            'documentCost' => in_array('document-translate', $offers, true) ? DocumentTranslation::estimate() : null,
+            'formTranslation' => FormTranslation::statusFor($postId, $items),
         ];
     }
 }

@@ -65,6 +65,8 @@ export interface Settings {
 	settingsUrl: string;
 	userId: number;
 	glossary?: GlossarySettings;
+	/** Polylang → Form translations, when Gravity Forms is active. */
+	forms?: { available: boolean; url: string };
 }
 
 declare global {

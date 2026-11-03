@@ -26,7 +26,7 @@ import { celebrate } from '../ui/celebration';
 import { dismissNotice, notifyError, notifySuccess } from '../ui/notify';
 import { cellKey, useScreen } from '../list/screen-context';
 import { AuditBadge } from './audit-indicator';
-import { MediaBadge } from '../media/media-badge';
+import { MediaBadge, MediaModal } from '../media/media-badge';
 import { FollowupMenu } from '../ui/followup';
 
 const MISSING: Cell = { state: 'missing', postId: 0 };
@@ -115,6 +115,7 @@ function TranslatedCell( { item, slug, cell, about }: CellProps ) {
 	const newTab = __( '(opens in a new tab)', 'gds-content-translation' );
 	const status = statusLabel( cell.status );
 	const audit = cell.audit;
+	const [ mediaOpen, setMediaOpen ] = useState( false );
 
 	const setProofread = ( proofread: boolean ) => {
 		const anchor = document.querySelector< HTMLElement >( `[data-cell="${ key }"] .gds-ct__status` );
@@ -270,6 +271,9 @@ function TranslatedCell( { item, slug, cell, about }: CellProps ) {
 								{ audit.status === 'none' ? __( 'Run AI review', 'gds-content-translation' ) : __( 'Run AI review again', 'gds-content-translation' ) }
 							</MenuItem>
 						) }
+						<MenuItem onClick={ () => { close(); setMediaOpen( true ); } }>
+							{ __( 'Files, images and forms', 'gds-content-translation' ) }
+						</MenuItem>
 						<MenuItem
 							disabled={ saving }
 							onClick={ () => {
@@ -294,6 +298,7 @@ function TranslatedCell( { item, slug, cell, about }: CellProps ) {
 					</>
 				) }
 			</CellMenu>
+			{ mediaOpen && <MediaModal postId={ cell.postId } about={ about } onChange={ () => screen.refresh( true ) } onClose={ () => setMediaOpen( false ) } /> }
 		</>
 	);
 }

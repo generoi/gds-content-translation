@@ -1578,3 +1578,150 @@ $chip: 22px;
 		cursor: pointer;
 	}
 }
+
+.gds-ct-media {
+	&__done {
+		padding: 1px 6px;
+		border-radius: 2px;
+		background: #edfaef;
+		color: #00450c;
+		font-size: 11px;
+		font-weight: 400;
+	}
+
+	&__actions {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 4px 8px;
+		margin-top: 8px;
+	}
+
+	&__inline {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: flex-end;
+		gap: 8px;
+		margin-top: 8px;
+
+		.components-base-control {
+			flex: 1 1 16rem;
+		}
+	}
+
+	&__job {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 4px;
+		margin: 6px 0 0;
+		color: #1d2327;
+
+		&.is-error {
+			color: #8a2424;
+		}
+
+		.components-spinner {
+			margin: 0 4px 0 0;
+		}
+	}
+
+	&__labels {
+		display: grid;
+		gap: 12px;
+
+		// The original label as written, not in the control's capitals.
+		.components-base-control__label {
+			text-transform: none;
+			font-weight: 400;
+		}
+	}
+
+	&__item.is-translated {
+		.gds-ct-media__texts li {
+			background: #edfaef;
+		}
+	}
+}
+
+// Polylang → Form translations.
+.gds-ct-forms {
+	&__intro {
+		max-width: 48rem;
+	}
+
+	&__table {
+		max-width: 60rem;
+
+		td,
+		th {
+			vertical-align: middle;
+		}
+	}
+
+	&__done {
+		color: #00a32a;
+	}
+
+	&__remarks {
+		margin-left: 8px;
+	}
+
+	&__toolbar {
+		margin: 8px 0 16px;
+	}
+
+	&__edit {
+		align-self: center;
+	}
+
+	&__texts {
+		max-width: 80rem;
+
+		td {
+			width: 50%;
+			vertical-align: top;
+		}
+
+		tr.has-remark td {
+			background: #fcf9e8;
+		}
+	}
+
+	&__context {
+		display: block;
+		margin-bottom: 2px;
+		color: #50575e;
+		font-size: 12px;
+	}
+
+	&__source {
+		white-space: pre-wrap;
+		overflow-wrap: anywhere;
+	}
+
+	&__remark {
+		margin-top: 8px;
+		padding: 8px;
+		border-left: 3px solid #dba617;
+		background: #fff;
+
+		p {
+			margin: 0 0 6px;
+		}
+	}
+
+	&__suggestion {
+		font-weight: 600;
+	}
+
+	@media (max-width: 782px) {
+		&__texts td {
+			display: block;
+			width: auto;
+		}
+
+		&__texts thead {
+			display: none;
+		}
+	}
+}

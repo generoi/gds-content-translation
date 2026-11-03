@@ -1,13 +1,32 @@
 /**
  * A translation's files, images and forms still in the original's language,
- * in its cell: how many ("2 in Finnish"), opening the list in a modal.
- * Nothing when there are none, or the translation is not checked yet.
+ * in its cell: how many ("2 in Finnish"), opening the list in a modal. The
+ * cell's menu opens the same list when nothing is open, to correct what was
+ * translated.
  */
 import { Modal, VisuallyHidden } from '@wordpress/components';
 import { useState } from '@wordpress/element';
 import { __, _n, sprintf } from '@wordpress/i18n';
 import { defaultLanguage } from '../settings';
 import { MediaList } from './media-list';
+
+export function MediaModal( { postId, about, onChange, onClose }: { postId: number; about: string; onChange: () => void; onClose: () => void } ) {
+	const source = defaultLanguage()?.name ?? '';
+
+	return (
+		<Modal
+			title={
+				/* translators: %s: language name of the original, e.g. Finnish */
+				sprintf( __( 'Files, images and forms in %s', 'gds-content-translation' ), source )
+			}
+			onRequestClose={ onClose }
+			size="medium"
+		>
+			<p className="gds-ct-media__intro">{ about }</p>
+			<MediaList postId={ postId } onChange={ onChange } />
+		</Modal>
+	);
+}
 
 export function MediaBadge( { postId, count, about, onChange }: { postId: number; count?: number; about: string; onChange: () => void } ) {
 	const [ isOpen, setIsOpen ] = useState( false );
@@ -36,19 +55,7 @@ export function MediaBadge( { postId, count, about, onChange }: { postId: number
 				<span aria-hidden="true">{ label }</span>
 				<VisuallyHidden>{ `${ title }: ${ about }` }</VisuallyHidden>
 			</button>
-			{ isOpen && (
-				<Modal
-					title={
-						/* translators: %s: language name of the original, e.g. Finnish */
-						sprintf( __( 'Still in %s', 'gds-content-translation' ), source )
-					}
-					onRequestClose={ () => setIsOpen( false ) }
-					size="medium"
-				>
-					<p className="gds-ct-media__intro">{ about }</p>
-					<MediaList postId={ postId } onChange={ onChange } />
-				</Modal>
-			) }
+			{ isOpen && <MediaModal postId={ postId } about={ about } onChange={ onChange } onClose={ () => setIsOpen( false ) } /> }
 		</>
 	);
 }

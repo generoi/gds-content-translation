@@ -84,6 +84,8 @@ class Settings
         update_option(self::optionKey, array_values(array_diff($allSlugs, $visibleSlugs)));
 
         update_option(MachineTranslation::publishOption, isset($_POST['gds_ct_publish']));
+        update_option(SvgTranslation::autoOption, isset($_POST['gds_ct_svg_auto']));
+        update_option(DocumentTranslation::optionKey, isset($_POST['gds_ct_documents']));
 
         $model = Request::key($_POST, 'gds_ct_audit_model');
         $language = Request::key($_POST, 'gds_ct_audit_language');
@@ -163,6 +165,30 @@ class Settings
                                     <?php echo esc_html__('Publish an AI translation when its original is published, and the patterns it uses', 'gds-content-translation'); ?>
                                 </label>
                                 <p class="description"><?php echo esc_html__('Unchecked, every new translation is a draft until someone publishes it. Copy original always creates a draft.', 'gds-content-translation'); ?></p>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th scope="row"><?php echo esc_html__('Illustrations', 'gds-content-translation'); ?></th>
+                            <td>
+                                <label>
+                                    <input type="checkbox" name="gds_ct_svg_auto" value="1" <?php checked((bool) get_option(SvgTranslation::autoOption, true)); ?>>
+                                    <?php echo esc_html__('Translate the labels of SVG images with the page', 'gds-content-translation'); ?>
+                                </label>
+                                <p class="description"><?php echo esc_html__('DeepL translates the text in an SVG, with the glossary, into a copy of the file in the translation’s language, which the translation then shows. Labels can be corrected afterwards. Costs about as much as a sentence of the page.', 'gds-content-translation'); ?></p>
+                            </td>
+                        </tr>
+                        <tr>
+                            <th scope="row"><?php echo esc_html__('Documents', 'gds-content-translation'); ?></th>
+                            <td>
+                                <label>
+                                    <input type="checkbox" name="gds_ct_documents" value="1" <?php checked((bool) get_option(DocumentTranslation::optionKey, false)); ?>>
+                                    <?php echo esc_html__('Offer to translate PDF, Word, PowerPoint and Excel files with DeepL', 'gds-content-translation'); ?>
+                                </label>
+                                <p class="description"><?php echo esc_html(sprintf(
+                                    /* translators: %s: number of characters */
+                                    __('One file at a time, when someone asks for it. DeepL bills every file as at least %s characters, about the cost of translating 20 pages, and the layout of a designed PDF can break: the result is a draft to check before it is used.', 'gds-content-translation'),
+                                    number_format_i18n(DeeplApi::documentMinimumCharacters)
+                                )); ?></p>
                             </td>
                         </tr>
                     </tbody>

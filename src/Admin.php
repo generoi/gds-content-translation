@@ -12,6 +12,8 @@ class Admin
 
     private const glossaryPageSlug = 'mlang_content_translation_glossary';
 
+    public const formsPageSlug = 'mlang_content_translation_forms';
+
     private const exportAction = 'gds_ct_glossary_export';
 
     private const postTypeUserMetaKey = 'content_translation_status_post_type';
@@ -255,6 +257,17 @@ class Admin
             self::glossaryPageSlug,
             [$this, 'renderGlossaryPage']
         );
+
+        if (FormTranslation::isAvailable()) {
+            add_submenu_page(
+                'mlang',
+                __('Form translations', 'gds-content-translation'),
+                __('Form translations', 'gds-content-translation'),
+                'manage_options',
+                self::formsPageSlug,
+                [$this, 'renderFormsPage']
+            );
+        }
     }
 
     public function registerAdminBarMenu(): void
@@ -367,7 +380,7 @@ class Admin
 
     public function enqueueAssets(string $hookSuffix): void
     {
-        if ($hookSuffix === 'languages_page_'.self::glossaryPageSlug) {
+        if ($hookSuffix === 'languages_page_'.self::glossaryPageSlug || $hookSuffix === 'languages_page_'.self::formsPageSlug) {
             $this->enqueueApp();
 
             return;
@@ -450,6 +463,9 @@ class Admin
 
         wp_set_script_translations('gds-content-translation-status', 'gds-content-translation');
 
+        // The media library, to choose a translated file or image.
+        wp_enqueue_media();
+
         // HEX flags as wp_localize_script() uses them: a `</script>` in a
         // post type label cannot end the script block.
         wp_add_inline_script(
@@ -516,6 +532,10 @@ class Admin
                 'url' => admin_url('admin.php?page='.self::glossaryPageSlug),
                 'languages' => self::glossaryLanguages(),
             ],
+            'forms' => [
+                'available' => FormTranslation::isAvailable(),
+                'url' => admin_url('admin.php?page='.self::formsPageSlug),
+            ],
         ];
     }
 
@@ -572,6 +592,24 @@ class Admin
             <div id="gds-ct-glossary-root">
                 <p class="gds-content-translation-app__loading"><span class="spinner is-active" style="float:none;margin:0 8px 0 0"></span><?php echo esc_html__('Loading…', 'gds-content-translation'); ?></p>
                 <noscript><p><?php echo esc_html__('The glossary needs JavaScript.', 'gds-content-translation'); ?></p></noscript>
+            </div>
+        </div>
+        <?php
+    }
+
+    public function renderFormsPage(): void
+    {
+        if (! current_user_can('manage_options')) {
+            return;
+        }
+
+        ?>
+        <div class="wrap gds-content-translation-app">
+            <h1 class="wp-heading-inline"><?php echo esc_html__('Form translations', 'gds-content-translation'); ?></h1>
+            <hr class="wp-header-end">
+            <div id="gds-ct-forms-root">
+                <p class="gds-content-translation-app__loading"><span class="spinner is-active" style="float:none;margin:0 8px 0 0"></span><?php echo esc_html__('Loading…', 'gds-content-translation'); ?></p>
+                <noscript><p><?php echo esc_html__('Form translations need JavaScript.', 'gds-content-translation'); ?></p></noscript>
             </div>
         </div>
         <?php
