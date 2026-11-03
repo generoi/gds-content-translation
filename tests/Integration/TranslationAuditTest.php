@@ -30,6 +30,9 @@ class TranslationAuditTest extends AdminActionTestCase
     /** @var array<string, mixed>|WP_Error */
     private array|WP_Error $claudeResponse = [];
 
+    /** @var callable|null Runs while Claude "answers": an editor saving meanwhile. */
+    private $whileClaudeAnswers = null;
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -69,6 +72,10 @@ class TranslationAuditTest extends AdminActionTestCase
         }
 
         $this->claudeRequests[] = ['headers' => $args['headers'], 'body' => json_decode($args['body'], true)];
+
+        if ($this->whileClaudeAnswers) {
+            ($this->whileClaudeAnswers)();
+        }
 
         return $this->claudeResponse;
     }
@@ -110,7 +117,8 @@ class TranslationAuditTest extends AdminActionTestCase
      */
     private function translation(): array
     {
-        $ids = $this->createTranslatedPost(['post_title' => 'Page title']);
+        // The factory gives each post an excerpt of its own, which would be reviewed too.
+        $ids = $this->createTranslatedPost(['post_title' => 'Page title', 'post_excerpt' => '']);
         wp_update_post(['ID' => $ids['en'], 'post_content' => $this->blocks('Hello <strong>world</strong>', 'Read more', 'Read more')]);
         wp_update_post(['ID' => $ids['fi'], 'post_content' => $this->blocks('Hei <strong>maailma</strong>', 'Lue lisää', 'Lue lisaa')]);
 
@@ -619,7 +627,7 @@ class TranslationAuditTest extends AdminActionTestCase
 
     public function test_a_long_page_is_reviewed_in_several_calls(): void
     {
-        $ids = $this->createTranslatedPost();
+        $ids = $this->createTranslatedPost(['post_title' => 'Long page', 'post_excerpt' => '']);
         $texts = array_map(static fn (int $n): string => "Text {$n}", range(1, 61));
         wp_update_post(['ID' => $ids['en'], 'post_content' => $this->blocks(...$texts)]);
         wp_update_post(['ID' => $ids['fi'], 'post_content' => $this->blocks(...array_map(static fn (string $text): string => "Teksti {$text}", $texts))]);
@@ -664,6 +672,182 @@ class TranslationAuditTest extends AdminActionTestCase
             'Inga <del>formar</del><ins>gjutformar</ins>, ingen väntan',
             TextDiff::render('Inga <strong>formar</strong>, ingen väntan', 'Inga gjutformar, ingen väntan')
         );
+    }
+
+    public function test_long_texts_get_a_difference_only_when_it_stays_small(): void
+    {
+        $words = static fn (string $word, int $count): string => implode(' ', array_map(static fn (int $n): string => $word.$n, range(1, $count)));
+
+        // One word changed in a long text: only the middle is compared.
+        $long = $words('sana', 2000);
+        $this->assertSame(1, substr_count(TextDiff::render($long, str_replace('sana1000 ', 'SANA ', $long)), '<ins>'));
+
+        // A long text rewritten throughout: no difference.
+        $this->assertSame('', TextDiff::render($words('sana', 600), $words('ord', 600)));
+
+        // The review page shows that suggestion as it is.
+        $ids = $this->translation();
+        $translation = TranslationAudit::strings(get_post($ids['fi'])->post_content)[2];
+        TranslationAudit::store($ids['fi'], [
+            'status' => 'done',
+            'contentHash' => '',
+            'sourceId' => $ids['en'],
+            'segments' => [['id' => 1, 'source' => 'Read more', 'translation' => $translation.' '.$words('sana', 600), 'block' => 4, 'index' => 0]],
+            'remarks' => [['id' => 1, 'segment' => 1, 'severity' => 'warning', 'category' => 'fluency', 'issue' => 'Stiff.', 'suggestion' => '<em>'.$words('ord', 600).'</em>', 'state' => 'open']],
+        ]);
+        $row = AuditReview::remarkRows($ids['fi'])['rows'][0];
+        $this->assertSame('', $row['suggestionDiff']);
+        $this->assertStringStartsWith('<em>ord1 ord2', $row['suggestionText']);
+    }
+
+    public function test_an_edit_saved_while_the_review_runs_still_shows(): void
+    {
+        $ids = $this->translation();
+        $this->claudeResponse = $this->claudeAnswers(['summary' => 'One.', 'remarks' => [
+            ['segment' => 3, 'severity' => 'error', 'category' => 'grammar', 'issue' => 'Missing umlauts.', 'suggestion' => 'Lue lisää'],
+        ]]);
+        $this->whileClaudeAnswers = static function () use ($ids): void {
+            $content = str_replace('Hei <strong>maailma</strong>', 'Hei <strong>koko maailma</strong>', get_post($ids['fi'])->post_content);
+            wp_update_post(['ID' => $ids['fi'], 'post_content' => wp_slash($content)]);
+        };
+
+        TranslationAudit::queue($ids['fi']);
+        do_action('gds_content_translation_run_audit', $ids['fi']);
+        $this->whileClaudeAnswers = null;
+
+        // The notes were added, and the edit still counts as one.
+        $review = TranslationAudit::get($ids['fi']);
+        $this->assertGreaterThan(0, $review['remarks'][0]['noteId']);
+        $this->assertTrue(TranslationAudit::editedSince($ids['fi'], $review['contentHash']));
+
+        // So does it after a suggestion is used.
+        $this->assertTrue(TranslationAudit::applyText($ids['fi'], 1, 'Lue lisää', 'suggestion'));
+        $this->assertTrue(TranslationAudit::editedSince($ids['fi'], TranslationAudit::get($ids['fi'])['contentHash']));
+
+        // Without an edit, using a suggestion is not one.
+        $ids = $this->reviewedTranslation();
+        $this->assertTrue(TranslationAudit::applyText($ids['fi'], 2, 'Lue lisää', 'suggestion'));
+        $this->assertFalse(TranslationAudit::editedSince($ids['fi'], TranslationAudit::get($ids['fi'])['contentHash']));
+    }
+
+    public function test_a_review_made_before_fields_were_reviewed_is_not_edited(): void
+    {
+        $ids = $this->translation();
+        wp_update_post(['ID' => $ids['fi'], 'post_title' => 'Sivun otsikko']);
+
+        $this->assertFalse(TranslationAudit::editedSince($ids['fi'], md5(get_post($ids['fi'])->post_content)), 'The hash without the title.');
+        $this->assertFalse(TranslationAudit::editedSince($ids['fi'], TranslationAudit::contentHash($ids['fi'])));
+        $this->assertTrue(TranslationAudit::editedSince($ids['fi'], md5('something else')));
+    }
+
+    public function test_a_review_is_not_queued_while_one_runs(): void
+    {
+        $ids = $this->translation();
+        TranslationAudit::queue($ids['fi']);
+        $run = TranslationAudit::get($ids['fi'])['run'];
+        $this->assertNotSame('', $run);
+
+        $this->handleRequest('gds_ct_run_review', ['post' => (string) $ids['fi'], '_wpnonce' => wp_create_nonce('gds_ct_run_review')]);
+
+        $this->assertSame($run, TranslationAudit::get($ids['fi'])['run'], 'Not queued again.');
+        $this->assertStringContainsString('already running', $this->renderNotices());
+
+        // One that is stuck can be run again.
+        $review = TranslationAudit::get($ids['fi']);
+        TranslationAudit::store($ids['fi'], array_merge($review, ['queuedAt' => time() - HOUR_IN_SECONDS]));
+        $this->handleRequest('gds_ct_run_review', ['post' => (string) $ids['fi'], '_wpnonce' => wp_create_nonce('gds_ct_run_review')]);
+        $this->assertNotSame($run, TranslationAudit::get($ids['fi'])['run']);
+    }
+
+    public function test_a_note_of_another_run_does_not_close_a_remark(): void
+    {
+        $ids = $this->reviewedTranslation();
+        $review = TranslationAudit::get($ids['fi']);
+        [$first, $second] = array_map('intval', array_column($review['remarks'], 'noteId'));
+        $this->assertSame($review['run'], get_comment_meta($first, '_gds_content_translation_audit_run', true));
+
+        // Left by an earlier run that overlapped this one: its remark IDs are another review's.
+        update_comment_meta($first, '_gds_content_translation_audit_run', 'other');
+        wp_set_comment_status($first, 'approve');
+        $this->assertSame('open', TranslationAudit::get($ids['fi'])['remarks'][0]['state']);
+
+        // This run's note does close its remark.
+        wp_delete_comment($second, true);
+        $this->assertSame('dismissed', TranslationAudit::get($ids['fi'])['remarks'][1]['state']);
+    }
+
+    public function test_the_cron_fallback_waits_for_a_free_place(): void
+    {
+        $ids = $this->translation();
+        $other = $this->translation();
+        $this->claudeResponse = $this->claudeAnswers(['summary' => 'Fine.', 'remarks' => []]);
+        add_filter('gds_content_translation_audit_parallel', static fn (): int => 1);
+
+        TranslationAudit::queue($other['fi']);
+        TranslationAudit::queue($ids['fi']);
+        $this->assertSame('queued', TranslationAudit::get($ids['fi'])['status']);
+        wp_clear_scheduled_hook('gds_content_translation_run_audit', [$ids['fi']]);
+
+        do_action('gds_content_translation_run_audit', $ids['fi']);
+        $this->assertSame([], $this->claudeRequests, 'The place is taken.');
+        $this->assertSame('queued', TranslationAudit::get($ids['fi'])['status']);
+        $this->assertNotFalse(wp_next_scheduled('gds_content_translation_run_audit', [$ids['fi']]), 'Looked at again later.');
+
+        // Once the other is done, there is room. (Its end would start this one.)
+        TranslationAudit::store($other['fi'], ['status' => 'done', 'contentHash' => '', 'remarks' => []]);
+        do_action('gds_content_translation_run_audit', $ids['fi']);
+        $this->assertSame('done', TranslationAudit::get($ids['fi'])['status']);
+
+        remove_all_filters('gds_content_translation_audit_parallel');
+    }
+
+    public function test_the_title_excerpt_and_seo_texts_are_reviewed_and_fixed(): void
+    {
+        $ids = $this->translation();
+        wp_update_post(['ID' => $ids['en'], 'post_title' => 'Wall braces', 'post_excerpt' => 'Strong braces.']);
+        wp_update_post(['ID' => $ids['fi'], 'post_title' => 'Seinäpönkät', 'post_excerpt' => 'Vahvat tuet.']);
+        update_post_meta($ids['en'], '_yoast_wpseo_metadesc', 'Buy wall braces.');
+        update_post_meta($ids['fi'], '_yoast_wpseo_metadesc', 'Osta seinäpönkkiä.');
+        update_post_meta($ids['en'], '_yoast_wpseo_title', '%%title%% %%sep%% Shop');
+        update_post_meta($ids['fi'], '_yoast_wpseo_title', '%%title%% %%sep%% Kauppa');
+        // Still the original's, or empty: nothing to review.
+        update_post_meta($ids['en'], '_yoast_wpseo_opengraph-title', 'Stedox');
+        update_post_meta($ids['fi'], '_yoast_wpseo_opengraph-title', 'Stedox');
+        update_post_meta($ids['en'], '_yoast_wpseo_twitter-title', 'Braces');
+
+        $this->claudeResponse = $this->claudeAnswers(['summary' => 'Fields.', 'remarks' => [
+            ['segment' => 4, 'severity' => 'error', 'category' => 'terminology', 'issue' => 'Glossary.', 'suggestion' => 'Seinätuet'],
+            ['segment' => 6, 'severity' => 'warning', 'category' => 'fluency', 'issue' => 'Shop.', 'suggestion' => '%%title%% %%sep%% Verkkokauppa'],
+            ['segment' => 6, 'severity' => 'warning', 'category' => 'fluency', 'issue' => 'Lost a variable.', 'suggestion' => '%%title%% Verkkokauppa'],
+            ['segment' => 7, 'severity' => 'warning', 'category' => 'fluency', 'issue' => 'Stiff.', 'suggestion' => 'Osta seinätukia.'],
+        ]]);
+
+        TranslationAudit::queue($ids['fi']);
+        do_action('gds_content_translation_run_audit', $ids['fi']);
+
+        // After the content, each with its field's name.
+        $payload = json_decode($this->claudeRequests[0]['body']['messages'][0]['content'], true);
+        $this->assertSame(
+            [[4, 'Title', 'Seinäpönkät'], [5, 'Excerpt', 'Vahvat tuet.'], [6, 'SEO title', '%%title%% %%sep%% Kauppa'], [7, 'Meta description', 'Osta seinäpönkkiä.']],
+            array_map(static fn (array $segment): array => [$segment['id'], $segment['field'], $segment['translation']], array_slice($payload['segments'], 3))
+        );
+        $this->assertStringContainsString('%%sitename%%', $this->claudeRequests[0]['body']['system']);
+
+        $review = TranslationAudit::get($ids['fi']);
+        $this->assertSame([4, 6, 7], array_column($review['remarks'], 'segment'), 'The suggestion without the variable is dropped.');
+        $this->assertSame(['segment' => 4, 'label' => 'Title'], array_intersect_key(AuditReview::remarkRows($ids['fi'])['rows'][3], ['segment' => 0, 'label' => '']));
+        $this->assertFalse(TranslationAudit::editedSince($ids['fi'], $review['contentHash']));
+
+        $this->assertTrue(TranslationAudit::applyText($ids['fi'], 1, 'Seinätuet', 'suggestion'));
+        $this->assertTrue(TranslationAudit::applyText($ids['fi'], 2, '%%title%% %%sep%% Verkkokauppa', 'suggestion'));
+        $this->assertSame('Seinätuet', get_post($ids['fi'])->post_title);
+        $this->assertSame('%%title%% %%sep%% Verkkokauppa', get_post_meta($ids['fi'], '_yoast_wpseo_title', true));
+        $this->assertFalse(TranslationAudit::editedSince($ids['fi'], TranslationAudit::get($ids['fi'])['contentHash']), 'Using them is no edit.');
+
+        // A field changed since is left alone, and an edit in it shows.
+        update_post_meta($ids['fi'], '_yoast_wpseo_metadesc', 'Osta seinätukia nyt.');
+        $this->assertSame('gds_ct_audit_changed', TranslationAudit::applyText($ids['fi'], 3, 'Osta seinätukia.', 'suggestion')->get_error_code());
+        $this->assertTrue(TranslationAudit::editedSince($ids['fi'], TranslationAudit::get($ids['fi'])['contentHash']));
     }
 
     public function test_only_editors_of_the_translation_can_change_remarks(): void

@@ -78,6 +78,10 @@ final class AuditReview
         } elseif (function_exists('wp_check_post_lock') && wp_check_post_lock($postId)) {
             // The review adds notes to the content, which an open editor would overwrite.
             Notice::flash('error', __('Someone has this translation open in the editor. Run the review when it is closed.', 'gds-content-translation'));
+        } elseif ((TranslationAudit::statuses([$postId])[$postId]['status'] ?? '') === 'pending') {
+            // A second run would add its notes next to the first one's. One
+            // that is stuck can be run again.
+            Notice::flash('error', __('The AI review of this translation is already running. Wait for it to finish.', 'gds-content-translation'));
         } else {
             TranslationAudit::queue($postId);
         }
@@ -139,8 +143,8 @@ final class AuditReview
         foreach ((array) $review['segments'] as $segment) {
             $base = [
                 'segment' => (int) $segment['id'],
-                // An ACF field says which one.
-                'label' => (string) ($segment['label'] ?? ''),
+                // A field says which one: ACF's label, or the title's, the excerpt's or an SEO field's.
+                'label' => TranslationAudit::segmentLabel($segment),
                 'source' => TranslationAudit::displayText(wp_kses_post($segment['source'])),
                 'translation' => TranslationAudit::displayText(wp_kses_post($segment['translation'])),
                 // What Edit… starts from, nested blocks' placeholders included.
@@ -159,6 +163,8 @@ final class AuditReview
                     'issue' => (string) $remark['issue'],
                     'suggestion' => $suggestion,
                     'suggestionDiff' => $suggestion !== '' ? TranslationAudit::displayText(TextDiff::render((string) $segment['translation'], $suggestion)) : '',
+                    // Shown as it is when the texts are too long to compare.
+                    'suggestionText' => TranslationAudit::displayText(wp_kses_post($suggestion)),
                     'state' => (string) ($remark['state'] ?? 'open'),
                     'stateLabel' => ($remark['state'] ?? 'open') !== 'open' ? self::stateLabel($remark) : '',
                 ];
@@ -174,6 +180,7 @@ final class AuditReview
                     'issue' => '',
                     'suggestion' => '',
                     'suggestionDiff' => '',
+                    'suggestionText' => '',
                     'state' => 'none',
                     'stateLabel' => '',
                 ];
@@ -348,7 +355,7 @@ final class AuditReview
     private static function renderDone(int $postId, \WP_Post $post, array $review, array $status, array $openCounts): void
     {
         $openTotal = array_sum($openCounts);
-        $edited = $status['contentHash'] !== '' && TranslationAudit::contentHash($postId) !== $status['contentHash'];
+        $edited = TranslationAudit::editedSince($postId, $status['contentHash']);
         $proofread = (bool) get_post_meta($postId, GDS_CONTENT_TRANSLATION_META_KEY, true);
 
         ?>
@@ -441,7 +448,7 @@ final class AuditReview
                         <?php
                         echo esc_html(sprintf(
                             /* translators: 1: date and time, 2: model name */
-                            __('Reviewed %1$s by %2$s. Checks the content and the ACF text fields, not the title or excerpt.', 'gds-content-translation'),
+                            __('Reviewed %1$s by %2$s. Checks the content, the title, the excerpt, the ACF text fields and the Yoast SEO texts.', 'gds-content-translation'),
                             wp_date(get_option('date_format').' '.get_option('time_format'), (int) ($review['createdAt'] ?? 0)),
                             TranslationAudit::models()[$review['model'] ?? ''] ?? ($review['model'] ?? '')
                         ));

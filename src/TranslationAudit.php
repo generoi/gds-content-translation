@@ -19,9 +19,10 @@ if (! defined('ABSPATH')) {
  * Queued once the translation is saved and run in the background, so a slow
  * review never holds up the translation. Segments are paired by walking the
  * original and the translation with Polylang Pro's own translation walker,
- * which also makes a review of an edited translation possible. Only post
- * content is reviewed; title, excerpt and metas are not. The translation
- * itself is never changed.
+ * which also makes a review of an edited translation possible. The post
+ * content is reviewed, then the ACF text fields, the title, the excerpt and
+ * the Yoast SEO texts ({@see pairFields()}). The translation itself is only
+ * changed when a suggestion is used.
  */
 final class TranslationAudit
 {
@@ -102,7 +103,7 @@ final class TranslationAudit
         $audit = new self;
         add_action('wp_ajax_'.self::ajaxAction, [$audit, 'handleBackgroundRequest']);
         add_action('wp_ajax_nopriv_'.self::ajaxAction, [$audit, 'handleBackgroundRequest']);
-        add_action(self::cronHook, [$audit, 'runQueued']);
+        add_action(self::cronHook, [$audit, 'runFromCron']);
     }
 
     /**
@@ -244,6 +245,9 @@ final class TranslationAudit
         self::store($postId, [
             'status' => $waiting ? 'queued' : 'pending',
             'queuedAt' => time(),
+            // Which run the editor notes belong to ({@see AuditNotes}): one left
+            // by another run must not close this one's remarks.
+            'run' => wp_generate_password(12, false),
             'sourceId' => $sourceId,
             'requestedBy' => get_current_user_id() ?: (int) ($previous['requestedBy'] ?? 0),
             'followup' => in_array($followup, self::followups, true) ? $followup : 'manual',
@@ -372,6 +376,23 @@ final class TranslationAudit
     }
 
     /**
+     * The WP-Cron fallback. A review still waiting for a free place waits on
+     * while the places are taken, and is looked at again two minutes later.
+     */
+    public function runFromCron(int $postId): void
+    {
+        $queued = self::get($postId);
+
+        if (($queued['status'] ?? '') === 'queued' && self::runningCount() >= self::maxParallel()) {
+            wp_schedule_single_event(time() + 2 * MINUTE_IN_SECONDS, self::cronHook, [$postId]);
+
+            return;
+        }
+
+        $this->runQueued($postId);
+    }
+
+    /**
      * Run the review queued for a translation, if it is still queued.
      */
     public function runQueued(int $postId): void
@@ -390,6 +411,7 @@ final class TranslationAudit
         $review = $this->run($postId, (string) ($queued['pageInstructions'] ?? ''));
         $review['requestedBy'] = (int) ($queued['requestedBy'] ?? 0);
         $review['appliedBefore'] = (int) ($queued['appliedBefore'] ?? 0);
+        $review['run'] = (string) ($queued['run'] ?? '');
 
         if ($review['status'] === 'done' && self::settings()['notes']) {
             $review = AuditNotes::add($postId, $review);
@@ -551,7 +573,7 @@ final class TranslationAudit
         $review['glossary'] = count($this->glossary);
 
         if ($paired['segments'] === []) {
-            return array_merge($review, ['status' => 'done', 'summary' => __('Nothing to review: the original has no text in its content or its ACF text fields (a page whose content comes from its template, say).', 'gds-content-translation')]);
+            return array_merge($review, ['status' => 'done', 'summary' => __('Nothing to review: the translation has no text of the original in its content, its ACF text fields, its title, excerpt or SEO texts (a page whose content comes from its template, say).', 'gds-content-translation')]);
         }
 
         return $this->review($review, $source, $sourceLanguage, $targetLanguage);
@@ -620,7 +642,9 @@ final class TranslationAudit
 
     /**
      * Every text of a translation paired with the original's: the post
-     * content's, then the ACF text fields'. Numbered in that order.
+     * content's, then the ACF text fields', then the title, the excerpt and
+     * the SEO texts. Numbered in that order, so the numbers of a review made
+     * before the last ones were reviewed still match.
      *
      * @return array{segments: list<array<string, mixed>>, unaligned: int}
      */
@@ -628,11 +652,81 @@ final class TranslationAudit
     {
         $paired = self::pairSegments($source->post_content, $translation->post_content);
 
-        foreach (self::pairAcf((int) $source->ID, (int) $translation->ID) as $field) {
+        foreach (array_merge(self::pairAcf((int) $source->ID, (int) $translation->ID), self::pairFields($source, $translation)) as $field) {
             $paired['segments'][] = ['id' => count($paired['segments']) + 1] + $field;
         }
 
         return $paired;
+    }
+
+    /**
+     * The post's own text fields a review checks besides its content, with
+     * the name an editor knows them by: the title and the excerpt (columns
+     * of the post), and Yoast SEO's titles and descriptions (its metas,
+     * which Polylang copies or translates).
+     *
+     * @return array<string, string> Column or meta key => label.
+     */
+    public static function fieldLabels(): array
+    {
+        return [
+            'post_title' => __('Title', 'gds-content-translation'),
+            'post_excerpt' => __('Excerpt', 'gds-content-translation'),
+            '_yoast_wpseo_title' => __('SEO title', 'gds-content-translation'),
+            '_yoast_wpseo_metadesc' => __('Meta description', 'gds-content-translation'),
+            '_yoast_wpseo_opengraph-title' => __('Social title', 'gds-content-translation'),
+            '_yoast_wpseo_opengraph-description' => __('Social description', 'gds-content-translation'),
+            '_yoast_wpseo_twitter-title' => __('X title', 'gds-content-translation'),
+            '_yoast_wpseo_twitter-description' => __('X description', 'gds-content-translation'),
+        ];
+    }
+
+    /**
+     * The title, the excerpt and the SEO texts the translation has, unless
+     * they are empty or still the original's (a name, or a copy nobody
+     * translated): those leave nothing to review.
+     *
+     * @return list<array{source: string, translation: string, block: null, index: int, field: string, label: string}>
+     */
+    public static function pairFields(WP_Post $source, WP_Post $translation): array
+    {
+        $fields = [];
+
+        foreach (self::fieldLabels() as $field => $label) {
+            $sourceText = self::fieldValue($source, $field);
+            $translationText = self::fieldValue($translation, $field);
+
+            if (trim(wp_strip_all_tags($sourceText)) === '' || trim($translationText) === '' || trim($sourceText) === trim($translationText)) {
+                continue;
+            }
+
+            $fields[] = [
+                'source' => $sourceText,
+                'translation' => $translationText,
+                'block' => null,
+                'index' => -1,
+                'field' => $field,
+                'label' => $label,
+            ];
+        }
+
+        return $fields;
+    }
+
+    private static function fieldValue(WP_Post $post, string $field): string
+    {
+        return str_starts_with($field, 'post_') ? (string) $post->{$field} : (string) get_post_meta($post->ID, $field, true);
+    }
+
+    /**
+     * Which field a text is in, for the review page; '' for the content.
+     *
+     * @param  array<string, mixed>  $segment
+     */
+    public static function segmentLabel(array $segment): string
+    {
+        // In the admin's language now, not the one of the review's time.
+        return self::fieldLabels()[$segment['field'] ?? ''] ?? (string) ($segment['label'] ?? '');
     }
 
     /**
@@ -681,9 +775,12 @@ final class TranslationAudit
 
     /**
      * What a review saw, to tell later whether the translation changed:
-     * the post content and the ACF texts.
+     * the post content, the ACF texts, and the title, excerpt and SEO texts.
+     *
+     * @param  bool  $fields  False for the hash of a review made before the
+     *                        title, excerpt and SEO texts were reviewed.
      */
-    public static function contentHash(int $postId): string
+    public static function contentHash(int $postId, bool $fields = true): string
     {
         $post = get_post($postId);
 
@@ -692,9 +789,25 @@ final class TranslationAudit
         }
 
         $sourceId = self::sourceIdOf($postId);
-        $acf = $sourceId ? array_column(self::pairAcf($sourceId, $postId), 'translation', 'acf') : [];
+        $source = $sourceId ? get_post($sourceId) : null;
+        $texts = $sourceId ? array_column(self::pairAcf($sourceId, $postId), 'translation', 'acf') : [];
 
-        return md5($post->post_content.($acf ? wp_json_encode($acf) : ''));
+        if ($fields && $source) {
+            $texts += array_column(self::pairFields($source, $post), 'translation', 'field');
+        }
+
+        return md5($post->post_content.($texts ? wp_json_encode($texts) : ''));
+    }
+
+    /**
+     * Whether the translation changed since a review that saw it with this
+     * hash, as the review page and the status screen say. A review stored
+     * before the title, excerpt and SEO texts were reviewed has the older
+     * hash, which is checked too.
+     */
+    public static function editedSince(int $postId, string $hash): bool
+    {
+        return $hash !== '' && ! in_array($hash, [self::contentHash($postId), self::contentHash($postId, false)], true);
     }
 
     /**
@@ -839,7 +952,7 @@ final class TranslationAudit
 
         // A review stored before texts kept their place: find it the way the
         // review page pairs the texts now, if it still says the same.
-        if (empty($segment['acf']) && ! array_key_exists('index', $segment)) {
+        if (empty($segment['acf']) && empty($segment['field']) && ! array_key_exists('index', $segment)) {
             $source = get_post((int) ($review['sourceId'] ?? 0));
             $current = $source ? (array_column(self::currentSegments($source, $post)['segments'], null, 'id')[$segment['id']] ?? null) : null;
 
@@ -851,6 +964,11 @@ final class TranslationAudit
 
         $changed = new WP_Error('gds_ct_audit_changed', __('This text has changed in the translation since the review. Make the change in the editor.', 'gds-content-translation'));
 
+        // Whether the translation is still as the review saw it, apart from
+        // what was used here: only then is the change below not an edit.
+        // Someone's save meanwhile keeps the old hash, so it still shows.
+        $unedited = ! self::editedSince($postId, (string) ($review['contentHash'] ?? ''));
+
         if (! empty($segment['acf'])) {
             // An ACF field: its value is the whole text.
             if ((string) get_post_meta($postId, $segment['acf'], true) !== $segment['translation']) {
@@ -858,6 +976,19 @@ final class TranslationAudit
             }
 
             update_post_meta($postId, $segment['acf'], wp_slash($text));
+        } elseif (! empty($segment['field'])) {
+            // The title, the excerpt or an SEO text: its value is the whole text.
+            $field = (string) $segment['field'];
+
+            if (! isset(self::fieldLabels()[$field]) || self::fieldValue($post, $field) !== $segment['translation']) {
+                return $changed;
+            }
+
+            if (str_starts_with($field, 'post_')) {
+                wp_update_post(['ID' => $postId, $field => wp_slash($text)]);
+            } else {
+                update_post_meta($postId, $field, wp_slash($text));
+            }
         } else {
             $content = self::replaceString($post->post_content, $segment['block'] ?? null, (int) ($segment['index'] ?? -1), $segment['translation'], $text);
 
@@ -870,7 +1001,10 @@ final class TranslationAudit
 
         $review['segments'][$segmentIndex]['reviewed'] ??= $segment['translation'];
         $review['segments'][$segmentIndex]['translation'] = $text;
-        $review['contentHash'] = self::contentHash($postId);
+
+        if ($unedited) {
+            $review['contentHash'] = self::contentHash($postId);
+        }
 
         foreach ($review['remarks'] as $index => $candidate) {
             if ((int) $candidate['id'] === $remarkId) {
@@ -1347,6 +1481,7 @@ Rules for remarks:
 - Do not report personal style preferences or wording that is already correct and natural. A page with a good translation should get few or no remarks.
 - Leave URLs, link targets and HTML attributes alone; links are handled separately.
 - `<pre translate="no">Polylang placeholder do not modify</pre>` stands for a nested block. It is not text: never report it, and keep it exactly where it is in every suggestion.
+- The SEO fields can contain variables such as `%%title%%`, `%%sep%%` and `%%sitename%%`, which the site fills in. They are not text: never translate or report them, and keep every one of them in every suggestion.
 - Make sure the explanation is factually correct, for example about grammatical gender.
 - Keep remarks consistent with each other: do not suggest a term in one remark that another remark advises against.
 
@@ -1390,7 +1525,7 @@ PROMPT;
             'part' => $parts > 1 ? sprintf('Part %d of %d of the page; the segment numbers continue across parts.', $part, $parts) : null,
             'segments' => array_map(static fn (array $segment): array => array_filter([
                 'id' => $segment['id'],
-                // ACF fields: which one, as the editor knows it.
+                // ACF fields, the title and so on: which one, as the editor knows it.
                 'field' => $segment['label'] ?? null,
                 'source' => $segment['source'],
                 'translation' => $segment['translation'],
@@ -1474,6 +1609,11 @@ PROMPT;
                 continue;
             }
 
+            // Nor may it lose one of an SEO text's variables (%%title%%).
+            if (self::seoVariables($suggestion) !== self::seoVariables($translation)) {
+                continue;
+            }
+
             $term = [
                 'source' => Glossary::cleanTerm($remark['term']['source'] ?? ''),
                 'target' => Glossary::cleanTerm($remark['term']['target'] ?? ''),
@@ -1498,5 +1638,19 @@ PROMPT;
         }
 
         return $normalized;
+    }
+
+    /**
+     * Yoast SEO's variables in a text, sorted.
+     *
+     * @return list<string>
+     */
+    private static function seoVariables(string $text): array
+    {
+        preg_match_all('/%%[a-z0-9_-]+%%/i', $text, $matches);
+        $variables = $matches[0];
+        sort($variables);
+
+        return $variables;
     }
 }
