@@ -19,7 +19,7 @@ if (! defined('ABSPATH')) {
 final class StatusList
 {
     /** Filters per language: what the cell must be. */
-    public const filterKinds = ['missing', 'unproofread', 'errors', 'running'];
+    public const filterKinds = ['missing', 'unproofread', 'errors', 'running', 'media'];
 
     public const orderbys = ['title', 'date'];
 
@@ -122,7 +122,10 @@ final class StatusList
             'rows' => self::rows($pageEntries, $postType, $languages),
             'total' => $total,
             'totalPages' => $totalPages,
-            'summary' => $summary,
+            'summary' => $summary + [
+                // The site-wide check of files and images, while it runs.
+                'mediaCheck' => MediaCheck::progress() + ['images' => MediaCheck::queuedImages()],
+            ],
         ];
     }
 
@@ -178,6 +181,7 @@ final class StatusList
         $translations = self::postFields($translationIds);
         $proofread = self::proofreadPostIds($translationIds);
         $audits = TranslationAudit::statuses($translationIds);
+        $media = MediaCheck::openCounts($translationIds);
         $jobs = BulkTranslation::jobsBySource($sourceIds);
         $entries = [];
 
@@ -201,6 +205,8 @@ final class StatusList
                     'postStatus' => $translations[$translationId]['status'],
                     'proofread' => isset($proofread[$translationId]),
                     'audit' => $audits[$translationId] ?? null,
+                    // Files, images and forms still the original's; null when not checked yet.
+                    'media' => $media[$translationId] ?? null,
                 ];
             }
 
@@ -273,6 +279,10 @@ final class StatusList
 
         if ($audit && $audit['status'] === 'pending') {
             $kinds[] = 'running';
+        }
+
+        if (($cell['media'] ?? 0) > 0) {
+            $kinds[] = 'media';
         }
 
         return $kinds;
@@ -439,6 +449,7 @@ final class StatusList
                     'openNotes' => $openNotes[$postId] ?? 0,
                     'canDelete' => $deletable,
                     'audit' => $cell['trashed'] ? null : self::audit($postId, $cell['audit']),
+                    'media' => $cell['trashed'] ? 0 : (int) ($cell['media'] ?? 0),
                     'job' => $job,
                 ];
             }

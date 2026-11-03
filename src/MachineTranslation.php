@@ -362,6 +362,18 @@ class MachineTranslation
             self::publishTranslations($container, $targetLang);
         }
 
+        // What DeepL did not see: the labels in its SVGs and its forms' texts.
+        // Before the review, so it reviews the page as it then is.
+        if (! $client instanceof SourceCopyClient) {
+            if (SvgTranslation::isAutomatic()) {
+                SvgTranslation::translateAll($translationId);
+            }
+
+            if (FormTranslation::isAvailable() && DeeplApi::isAvailable()) {
+                FormTranslation::translateFormsOf($translationId);
+            }
+        }
+
         // Kept to learn the glossary terms an editor changes before proofreading it.
         if (! $client instanceof SourceCopyClient) {
             GlossaryLearning::rememberMachineText($translationId);

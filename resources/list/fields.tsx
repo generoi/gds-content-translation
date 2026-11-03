@@ -1,7 +1,8 @@
 /**
  * The columns: the original's title (the primary column), its date, and one
  * column per translation language. A language column filters by what its
- * cells are: missing, not proof read, with open AI errors, being reviewed.
+ * cells are: missing, not proof read, with open AI errors, being reviewed,
+ * showing files or images still in the original's language.
  */
 import { dateI18n, getSettings as getDateSettings } from '@wordpress/date';
 import { __, sprintf } from '@wordpress/i18n';
@@ -14,11 +15,17 @@ import type { Settings } from '../settings';
 import type { FilterKind, Row } from '../types';
 
 export function filterLabels(): Record< FilterKind, string > {
+	const source = defaultLanguage()?.name ?? '';
+
 	return {
 		missing: __( 'To translate', 'gds-content-translation' ),
 		unproofread: __( 'To proofread', 'gds-content-translation' ),
 		errors: __( 'With AI errors', 'gds-content-translation' ),
 		running: __( 'AI review running', 'gds-content-translation' ),
+		media: source
+			? /* translators: %s: language name of the original, e.g. Finnish */
+			  sprintf( __( 'Files still in %s', 'gds-content-translation' ), source )
+			: __( 'Files still in the original language', 'gds-content-translation' ),
 	};
 }
 
@@ -29,7 +36,7 @@ function DateCell( { item }: { item: Row } ) {
 export function buildFields( settings: Settings ): Field< Row >[] {
 	const source = defaultLanguage( settings )?.name;
 	const labels = filterLabels();
-	const kinds: FilterKind[] = settings.review ? [ 'missing', 'unproofread', 'errors', 'running' ] : [ 'missing', 'unproofread' ];
+	const kinds: FilterKind[] = settings.review ? [ 'missing', 'unproofread', 'errors', 'running', 'media' ] : [ 'missing', 'unproofread', 'media' ];
 
 	const fields: Field< Row >[] = [
 		{

@@ -335,7 +335,9 @@ final class AuditReview
 
     /**
      * The remarks first: one line to mark the translation proofread, the
-     * table of remarks (the script's, {@see resources/review}), and what is
+     * files, images and forms still in the original's language (which the
+     * review cannot see), the table of remarks (the script's, {@see
+     * resources/review}), and what is
      * only sometimes needed folded away: the review's summary and details,
      * and the links that still lead to the original's pages.
      *
@@ -406,6 +408,8 @@ final class AuditReview
             </p></div>
         <?php } ?>
 
+        <?php self::renderMediaRoot($postId); ?>
+
         <div class="gds-content-translation-review__more">
             <details class="gds-content-translation-review__about">
                 <summary><?php echo esc_html__('About this review', 'gds-content-translation'); ?></summary>
@@ -469,6 +473,32 @@ final class AuditReview
         <?php } else { ?>
             <p><?php echo esc_html__('The review found no texts to check.', 'gds-content-translation'); ?></p>
         <?php } ?>
+        <?php
+    }
+
+    /**
+     * Where the script lists the files, images and forms still in the
+     * original's language ({@see MediaCheck}, resources/media): the review
+     * only sees text.
+     */
+    private static function renderMediaRoot(int $postId): void
+    {
+        $media = MediaCheck::get($postId);
+
+        if (! $media || $media['items'] === []) {
+            return;
+        }
+
+        $default = PLL()->model->get_language((string) pll_default_language('slug'));
+
+        ?>
+        <div
+            id="gds-ct-media-root"
+            class="gds-content-translation-review__media-root"
+            data-post-id="<?php echo esc_attr((string) $postId); ?>"
+            data-open="<?php echo esc_attr((string) $media['open']); ?>"
+            data-source="<?php echo esc_attr($default ? StatusList::languageName($default) : ''); ?>"
+        ></div>
         <?php
     }
 

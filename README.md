@@ -151,6 +151,46 @@ Polylang → **Translation glossary** keeps the terms with the translation they 
 
 REST, under `gds-content-translation/v1`: `GET|POST /glossary`, `POST /glossary/{id}`, `POST /glossary/bulk`, `POST /glossary/import`, `GET|POST /glossary/sync`. The DeepL key is Polylang Pro's (`gds_content_translation_deepl_api_key` filters it).
 
+### Files, images and forms still in the original language
+
+Machine translation translates the page's text. What the page shows besides its text stays the original's: the PDF behind *Download*, the labels in an illustration, the form, the video. The translation then reads as finished. Each translation is checked for those, when it or its original is saved, and in the background over the whole site after an update (WP-Cron, 25 translations a run; the status screen says *Checking files and images: 120 of 340* meanwhile).
+
+What is found, in the content's blocks and HTML and the featured image:
+
+- **Files** from the media library or the uploads folder: PDF, Word, Excel, PowerPoint, OpenDocument, CSV, ZIP and the like.
+- **SVG images with text**: their `<text>`, `<title>` and `<desc>`, shown as found. Text without letters (*28 × 120*) is no text to translate.
+- **Images with words in them**: Claude looks at each image once (its *large* size, from the AI review's key and model) and lists the words a reader would need in their own language, not logos, product names or codes. The answer is kept on the image until its file changes; a failed check is tried again a day later. Without an Anthropic key images are not checked.
+- **Gravity Forms forms** (block or shortcode): shown as written in the form.
+- **Embeds** (YouTube, Vimeo…).
+- **Links to other sites** that look like the original's language: its country domain (`.fi`, not for English) or a `/fi/`, `?lang=fi` address, unless the address is for the translation's language (`/sv/`).
+
+Only what the original shows too counts: a translation that links its own PDF, shows another image or another form has handled it. Files are compared by file, not by media library item, so Polylang's media translation (one item per language, one file) is handled too. Media blocks are found by their `id`, `mediaId`, `ids` and `…ImageId`/`…MediaId` attributes; `gds_content_translation_media_items` filters what is found for a post.
+
+- **Status screen**: the cell shows *2 in Finnish*, opening the list in a dialog; the cell's menu has *Files, images and forms* to open it any time. *Files still in Finnish* is a count per language above the table and a filter.
+- **AI review page**: the list is above the remarks, open while something is.
+- Each item says what it is and what to do, links to the file, form or address, and can be marked **Fine as it is** (a PDF that only exists in Finnish) or **Count again**.
+
+What can be done about each, in the translation only (saved as a revision):
+
+- **Use another file / image** (the media library's dialog), **show another form**, **change the address** of a link or embed. Block attributes (`id`, `mediaId`, `href`…), every image size's address, `wp-image-{id}` classes and Gravity Forms shortcodes are changed; the featured image too.
+- **SVGs: translate the labels.** Their `<text>` (lines in `<tspan>`s read as one), `<title>`, `<desc>` and alt text go to DeepL with the glossary and are written into a copy of the file per language (`diagram-en.svg`, a media library item that knows the file it translates). The translation shows the copy; *Edit the labels…* corrects them (in every translation showing the copy), *Use the original again* undoes it. One copy per file and language: a second page with the same illustration uses it without DeepL. When the original file changes, *Update the copy* makes it again, and only new labels go to DeepL. **After an AI translation this is done at once** (*Content translation settings → Illustrations*, on by default; `gds_content_translation_svg_auto` filters it).
+- **Documents: a DeepL draft**, when *Content translation settings → Documents* allows it (off by default). PDF, Word, PowerPoint and Excel files are translated one at a time, after a dialog says what it costs: DeepL bills every file as at least 50,000 characters, about €1 on DeepL API Pro (`gds_content_translation_deepl_price_per_million`, default 20), or that much of the free plan's characters, with what is left of the plan this period. DeepL translates in the background (WP-Cron polls every 10 seconds, up to 30 minutes); the draft is saved as a copy (`guide-en.pdf`) and used only when someone chooses **Use this file** after looking at it. A draft made for one translation is used again for others in the language, at no cost.
+- **Forms**: how much of the form is translated into the language, with a link to Form translations (below). A form translated into the language counts as handled.
+
+REST, under `gds-content-translation/v1`: `GET /media/{id}`, `POST /media/{id}` `{keys, ok}`, `POST /media/{id}/action` `{key, action, value, labels}` with the actions `replace`, `restore`, `svg-translate`, `svg-labels`, `document-translate`, `document-use`, `document-discard`.
+
+### Form translations
+
+Polylang → **Form translations** (with Gravity Forms): one form per purpose, its texts translated. A form is written once, in the default language; its title, description, labels, placeholders, descriptions, choices, sub-labels, buttons, error messages, HTML and consent texts, page names, confirmation messages and the notifications sent to the visitor (to an email field of the form) are kept per language. Notifications to the site's own people stay as written, and what a form submits (choice values) stays the same, so entries stay in one list. Each entry records its language (a *Language* column in the entries).
+
+- **The screen** lists every form with how much of it is translated into each language. A form's texts in a language are a table: the original, what it is (*“Email” – placeholder*), its translation to edit.
+- **Translate missing texts with DeepL**, with the glossary; texts with HTML are sent as HTML. After an AI translation of a page with a form, the form's missing texts in that language are translated at once.
+- **Check with the AI review**: Claude checks the translations against the originals and the glossary terms found in them, and each remark comes with the whole corrected text: *Use suggestion* or *Not an issue*.
+- Texts are stored by their original (`gds_content_translation_form_{id}` options): a changed label is a new text without a translation, shown in its original until translated, and the pages showing the form count it again.
+- On the site, `gform_pre_render`, `gform_pre_validation` and `gform_pre_submission_filter` give the form its texts in the page's language; a hidden field carries the language through an AJAX submission, and `gform_notification` translates the visitor's email.
+
+REST: `GET /forms`, `GET|POST /forms/{form}/{lang}` `{translations}`, `POST /forms/{form}/{lang}/translate|review|remark` `{source, use}`.
+
 ### Polylang block integration
 
 The plugin registers Polylang Pro hooks and exposes **project-specific rules via WordPress filters**. Themes (or site-specific mu-plugins) declare which custom block attributes are translatable strings, which hold post/attachment IDs, and which hold internal URLs.
@@ -360,6 +400,12 @@ wp-env run, so a `composer update` on a newer PHP cannot pick dev packages they
 cannot install. It does not change the plugin's own PHP requirement.
 
 ## Changelog
+
+### 1.5.0
+
+- **Files, images and forms still in the original language**: each translation is checked for the PDFs, SVG labels, images with words in them (Claude looks), Gravity Forms forms, embeds and links to other sites it still shares with its original. The status screen counts and filters them (*2 in Finnish*), the AI review page lists them, and each can be marked fine as it is. The whole site is checked in the background after the update.
+- **Fix them from the list**: use another file, image, form or address in the translation; translate an SVG's labels into a copy of the file (automatically after an AI translation), and correct them; have DeepL draft a PDF or Office file, after a dialog says what it costs (optional, off by default).
+- **Form translations** (Polylang → Form translations): Gravity Forms forms' texts per language, translated by DeepL with the glossary, checked by the AI review and edited; shown in the page's language, with the language recorded on each entry.
 
 ### 1.4.1
 

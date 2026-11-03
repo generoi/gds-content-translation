@@ -240,6 +240,23 @@ final class DeeplGlossary
     }
 
     /**
+     * The glossary's ID when it has terms for a language pair (glossary
+     * codes, "FI" and "EN"), else ''. Documents name it themselves.
+     */
+    public static function glossaryFor(string $sourceLang, string $targetLang): string
+    {
+        $state = self::state();
+
+        foreach ($state['dictionaries'] as $dictionary) {
+            if ($dictionary['sourceLang'] === $sourceLang && $dictionary['targetLang'] === $targetLang) {
+                return $state['glossaryId'];
+            }
+        }
+
+        return '';
+    }
+
+    /**
      * Add the glossary to Polylang's DeepL translate requests, for the
      * language pairs it has terms for.
      *

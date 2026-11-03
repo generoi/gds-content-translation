@@ -11,6 +11,9 @@ use GeneroWP\ContentTranslation\Actions\TrashTranslation;
 use GeneroWP\ContentTranslation\Admin;
 use GeneroWP\ContentTranslation\AuditReview;
 use GeneroWP\ContentTranslation\BulkTranslation;
+use GeneroWP\ContentTranslation\FormTranslation;
+use GeneroWP\ContentTranslation\MediaActions;
+use GeneroWP\ContentTranslation\MediaCheck;
 use GeneroWP\ContentTranslation\StatusList;
 use GeneroWP\ContentTranslation\TranslationActions;
 use GeneroWP\ContentTranslation\TranslationAudit;
@@ -34,6 +37,12 @@ if (! defined('ABSPATH')) {
  * - GET  /reviews/{id}: the AI review page's table of remarks.
  * - POST /reviews/{id}/remarks {operation, remarks, text}: use suggestions,
  *   save an edit, mark remarks fixed or not an issue, or reopen them.
+ * - GET  /media/{id}: the files, images and forms of a translation still in
+ *   the original's language; POST {keys, ok} marks some fine as they are.
+ * - POST /media/{id}/action {key, action, value, labels}: use another file,
+ *   form or address, translate an SVG or a document, or go back.
+ * - GET /forms, GET|POST /forms/{form}/{lang}, POST …/translate|review|remark:
+ *   Gravity Forms forms' texts per language.
  *
  * Every route needs the capability of the screen; each action also checks
  * the posts it changes.
@@ -104,6 +113,66 @@ final class StatusController
                 'remarks' => ['type' => 'array', 'required' => true, 'items' => ['type' => 'integer'], 'minItems' => 1, 'maxItems' => self::maxIds],
                 'text' => ['type' => 'string', 'default' => ''],
             ],
+        ]);
+
+        register_rest_route(self::namespace, '/media/(?P<id>\\d+)', [
+            [
+                'methods' => 'GET',
+                'callback' => [$this, 'media'],
+                'permission_callback' => $canEditPost,
+            ],
+            [
+                'methods' => 'POST',
+                'callback' => [$this, 'changeMedia'],
+                'permission_callback' => $canEditPost,
+                'args' => [
+                    'keys' => ['type' => 'array', 'required' => true, 'items' => ['type' => 'string'], 'minItems' => 1, 'maxItems' => self::maxIds],
+                    'ok' => ['type' => 'boolean', 'required' => true],
+                ],
+            ],
+        ]);
+
+        register_rest_route(self::namespace, '/media/(?P<id>\\d+)/action', [
+            'methods' => 'POST',
+            'callback' => [$this, 'mediaAction'],
+            'permission_callback' => $canEditPost,
+            'args' => [
+                'key' => ['type' => 'string', 'required' => true],
+                'action' => ['type' => 'string', 'required' => true, 'enum' => MediaActions::actions],
+                'value' => ['type' => ['string', 'integer'], 'default' => ''],
+                'labels' => ['type' => 'object', 'default' => [], 'additionalProperties' => ['type' => 'string']],
+            ],
+        ]);
+
+        register_rest_route(self::namespace, '/forms', [
+            'methods' => 'GET',
+            'callback' => static fn (): WP_REST_Response => rest_ensure_response(['forms' => FormTranslation::overview()]),
+            'permission_callback' => [self::class, 'permission'],
+        ]);
+
+        $formRoute = '/forms/(?P<form>\\d+)/(?P<lang>[a-z0-9_-]+)';
+        $formArgs = ['form' => ['type' => 'integer'], 'lang' => ['type' => 'string']];
+
+        register_rest_route(self::namespace, $formRoute, [
+            [
+                'methods' => 'GET',
+                'callback' => [$this, 'formRows'],
+                'permission_callback' => [self::class, 'permission'],
+                'args' => $formArgs,
+            ],
+            [
+                'methods' => 'POST',
+                'callback' => [$this, 'saveForm'],
+                'permission_callback' => [self::class, 'permission'],
+                'args' => $formArgs + ['translations' => ['type' => 'object', 'required' => true, 'additionalProperties' => ['type' => 'string']]],
+            ],
+        ]);
+
+        register_rest_route(self::namespace, $formRoute.'/(?P<operation>translate|review|remark)', [
+            'methods' => 'POST',
+            'callback' => [$this, 'formOperation'],
+            'permission_callback' => [self::class, 'permission'],
+            'args' => $formArgs + ['source' => ['type' => 'string', 'default' => ''], 'use' => ['type' => 'boolean', 'default' => false]],
         ]);
 
         register_rest_route(self::namespace, '/jobs', [
@@ -279,6 +348,85 @@ final class StatusController
         }
 
         return array_merge(['title' => $title], $data, ['id' => $sourceId, 'ok' => true]);
+    }
+
+    public function media(WP_REST_Request $request): WP_REST_Response|WP_Error
+    {
+        $postId = (int) $request['id'];
+
+        if (MediaCheck::get($postId) === null) {
+            return new WP_Error('gds_ct_not_translation', __('This is not a translation.', 'gds-content-translation'), ['status' => 404]);
+        }
+
+        return rest_ensure_response(MediaCheck::data($postId));
+    }
+
+    public function changeMedia(WP_REST_Request $request): WP_REST_Response|WP_Error
+    {
+        $postId = (int) $request['id'];
+
+        if (MediaCheck::setOk($postId, array_map('strval', (array) $request['keys']), (bool) $request['ok']) === null) {
+            return new WP_Error('gds_ct_not_translation', __('This is not a translation.', 'gds-content-translation'), ['status' => 404]);
+        }
+
+        return rest_ensure_response(MediaCheck::data($postId));
+    }
+
+    public function formRows(WP_REST_Request $request): WP_REST_Response|WP_Error
+    {
+        $rows = FormTranslation::rows((int) $request['form'], (string) $request['lang']);
+
+        return $rows instanceof WP_Error ? $rows : rest_ensure_response($rows);
+    }
+
+    public function saveForm(WP_REST_Request $request): WP_REST_Response|WP_Error
+    {
+        FormTranslation::save((int) $request['form'], (string) $request['lang'], array_map('strval', (array) $request['translations']));
+
+        return $this->formRows($request);
+    }
+
+    /**
+     * DeepL translates the texts without a translation, the AI review checks
+     * them, or one of its remarks is used or dismissed.
+     */
+    public function formOperation(WP_REST_Request $request): WP_REST_Response|WP_Error
+    {
+        $formId = (int) $request['form'];
+        $slug = (string) $request['lang'];
+
+        $result = match ((string) $request['operation']) {
+            'translate' => FormTranslation::translateMissing($formId, $slug),
+            'review' => FormTranslation::review($formId, $slug),
+            default => (function () use ($formId, $slug, $request): int {
+                FormTranslation::settleRemark($formId, $slug, (string) $request['source'], (bool) $request['use']);
+
+                return 1;
+            })(),
+        };
+
+        if ($result instanceof WP_Error) {
+            return new WP_Error($result->get_error_code(), $result->get_error_message(), ['status' => 400]);
+        }
+
+        $rows = FormTranslation::rows($formId, $slug);
+
+        return $rows instanceof WP_Error ? $rows : rest_ensure_response($rows + ['changed' => $result]);
+    }
+
+    public function mediaAction(WP_REST_Request $request): WP_REST_Response|WP_Error
+    {
+        $postId = (int) $request['id'];
+        $result = MediaActions::run($postId, (string) $request['key'], (string) $request['action'], [
+            'value' => $request['value'],
+            'labels' => (array) $request['labels'],
+        ]);
+
+        if ($result instanceof WP_Error) {
+            return new WP_Error($result->get_error_code(), $result->get_error_message(), ['status' => 400]);
+        }
+
+        return rest_ensure_response(MediaCheck::data($postId));
     }
 
     /**
