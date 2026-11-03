@@ -260,7 +260,7 @@ class Settings
                         <tr>
                             <th scope="row"><label for="gds-ct-audit-instructions"><?php echo esc_html__('Instructions for the AI review', 'gds-content-translation'); ?></label></th>
                             <td>
-                                <textarea id="gds-ct-audit-instructions" name="gds_ct_audit_instructions" class="large-text" rows="6" maxlength="<?php echo esc_attr((string) TranslationAudit::instructionsMax); ?>" placeholder="<?php echo esc_attr__('For example: “Braces” is always “väggstag” in Swedish. Product names such as Hammer Down stay in English. Use informal “du”.', 'gds-content-translation'); ?>"><?php echo esc_textarea($audit['instructions']); ?></textarea>
+                                <textarea id="gds-ct-audit-instructions" name="gds_ct_audit_instructions" class="large-text" rows="6" maxlength="<?php echo esc_attr((string) TranslationAudit::instructionsMax); ?>" placeholder="<?php echo esc_attr__('For example: “Read more” is always “Läs mer” in Swedish. Brand and product names stay as they are. Use a formal tone.', 'gds-content-translation'); ?>"><?php echo esc_textarea($audit['instructions']); ?></textarea>
                                 <p class="description"><?php echo esc_html__('Sent with every review: required terms, names that stay untranslated, tone. The review reports a translation that does not follow them, and its suggestions follow them. Instructions for one translation can be added when starting it.', 'gds-content-translation'); ?></p>
                             </td>
                         </tr>

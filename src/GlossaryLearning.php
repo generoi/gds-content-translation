@@ -17,7 +17,7 @@ if (! defined('ABSPATH')) {
  * For the second, the machine translation's texts are kept when it is
  * created. Once the translation is marked proofread, the texts an editor
  * changed are compared with them, in the background, and Claude names the
- * terms that changed ("stöd" became "väggstag").
+ * terms that changed ("offert" became "offertförfrågan").
  */
 final class GlossaryLearning
 {

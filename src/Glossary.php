@@ -336,8 +336,8 @@ final class Glossary
 
     /**
      * An approved term replaces the other approved translations of its
-     * source: accepting a suggestion that says "väggstag, not stöd" rejects
-     * "stöd".
+     * source: accepting a suggestion that says "offertförfrågan, not offert"
+     * rejects "offert".
      */
     private static function retireOthers(int $id): void
     {
@@ -593,7 +593,7 @@ final class Glossary
     /**
      * The approved terms of a language pair whose source term is in the text:
      * the glossary of one page for the AI review. Whole words, any case;
-     * longer terms first, as "wall brace kit" says more than "wall brace".
+     * longer terms first, as "price list file" says more than "price list".
      *
      * @return list<array{source: string, target: string, note?: string}>
      */

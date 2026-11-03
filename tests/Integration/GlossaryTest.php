@@ -128,50 +128,50 @@ class GlossaryTest extends AdminActionTestCase
         $this->assertSame([['code' => 'FI', 'name' => 'Finnish']], Glossary::targetLanguages());
 
         // A language with terms but none on the site is named after its code.
-        Glossary::add(['targetLang' => 'SV', 'source' => 'wall brace', 'target' => 'väggstag']);
+        Glossary::add(['targetLang' => 'SV', 'source' => 'price list', 'target' => 'prislista']);
         $this->assertSame([['code' => 'FI', 'name' => 'Finnish'], ['code' => 'SV', 'name' => 'Swedish']], Glossary::targetLanguages());
     }
 
     public function test_it_imports_deepl_csv_and_merges_a_second_file(): void
     {
-        $result = Glossary::import($this->csv("\xEF\xBB\xBF\"wall brace\",\"seinätuki\",\"EN\",\"FI\"\n\"Stedox\",\"Stedox\",\"EN\",\"FI\"\n\"brace\",\"tuki\",\"EN\",\"SV\"\n\"no translation\",\"\",\"EN\",\"FI\"\n"));
+        $result = Glossary::import($this->csv("\xEF\xBB\xBF\"price list\",\"hinnasto\",\"EN\",\"FI\"\n\"Acme\",\"Acme\",\"EN\",\"FI\"\n\"invoice\",\"lasku\",\"EN\",\"SV\"\n\"no translation\",\"\",\"EN\",\"FI\"\n"));
 
         $this->assertSame(['added' => 3, 'updated' => 0, 'unchanged' => 0, 'skipped' => 1, 'pairs' => ['EN-FI', 'EN-SV']], $result);
-        $this->assertSame(['Stedox' => 'Stedox', 'wall brace' => 'seinätuki'], $this->approved());
+        $this->assertSame(['Acme' => 'Acme', 'price list' => 'hinnasto'], $this->approved());
 
         // The same term again is unchanged; a new translation replaces the old.
-        $result = Glossary::import($this->csv("\"Stedox\",\"Stedox\",\"EN\",\"FI\"\n\"wall brace\",\"seinäpönkkä\",\"EN\",\"FI\"\n"));
+        $result = Glossary::import($this->csv("\"Acme\",\"Acme\",\"EN\",\"FI\"\n\"price list\",\"hintaluettelo\",\"EN\",\"FI\"\n"));
 
         $this->assertSame(['added' => 0, 'updated' => 1, 'unchanged' => 1, 'skipped' => 0, 'pairs' => ['EN-FI']], $result);
-        $this->assertSame(['Stedox' => 'Stedox', 'wall brace' => 'seinäpönkkä'], $this->approved());
-        $this->assertSame(['brace' => 'tuki'], $this->approved('SV'));
+        $this->assertSame(['Acme' => 'Acme', 'price list' => 'hintaluettelo'], $this->approved());
+        $this->assertSame(['invoice' => 'lasku'], $this->approved('SV'));
     }
 
     public function test_replace_removes_the_terms_of_the_languages_in_the_file_only(): void
     {
         $this->term('old term', 'vanha');
-        $rejected = $this->term('brace', 'stöd', 'rejected');
-        Glossary::import($this->csv("\"brace\",\"stag\",\"EN\",\"SV\"\n"));
+        $rejected = $this->term('invoice', 'räkning', 'rejected');
+        Glossary::import($this->csv("\"invoice\",\"faktura\",\"EN\",\"SV\"\n"));
 
         // A two-column file takes the language chosen.
-        $result = Glossary::import($this->csv("source,target\nwall brace,seinätuki\n"), 'replace', 'fi');
+        $result = Glossary::import($this->csv("source,target\nprice list,hinnasto\n"), 'replace', 'fi');
 
         $this->assertSame(1, $result['added']);
-        $this->assertSame(['wall brace' => 'seinätuki'], $this->approved());
-        $this->assertSame(['brace' => 'stag'], $this->approved('SV'));
+        $this->assertSame(['price list' => 'hinnasto'], $this->approved());
+        $this->assertSame(['invoice' => 'faktura'], $this->approved('SV'));
         $this->assertSame('rejected', Glossary::find($rejected)['status']);
     }
 
     public function test_the_export_is_deepl_csv_of_the_approved_terms(): void
     {
-        $this->term('wall brace', 'seinätuki');
+        $this->term('price list', 'hinnasto');
         $this->term('quote, "free"', 'tarjous');
         $this->term('suggested', 'ehdotettu', 'suggested');
 
         $csv = Glossary::export();
 
         $this->assertStringStartsWith("\xEF\xBB\xBF", $csv);
-        $this->assertSame("\"quote, \"\"free\"\"\",tarjous,EN,FI\n\"wall brace\",seinätuki,EN,FI\n", substr($csv, 3));
+        $this->assertSame("\"price list\",hinnasto,EN,FI\n\"quote, \"\"free\"\"\",tarjous,EN,FI\n", substr($csv, 3));
 
         // What it exports, it imports.
         $result = Glossary::import($this->csv($csv), 'replace');
@@ -180,19 +180,19 @@ class GlossaryTest extends AdminActionTestCase
 
     public function test_terms_need_both_texts_and_are_unique(): void
     {
-        $this->term('wall brace', 'seinätuki');
+        $this->term('price list', 'hinnasto');
 
-        $this->assertWPError(Glossary::add(['targetLang' => 'FI', 'source' => 'wall brace', 'target' => 'seinätuki']));
-        $this->assertWPError(Glossary::add(['targetLang' => 'FI', 'source' => 'wall brace', 'target' => ' ']));
+        $this->assertWPError(Glossary::add(['targetLang' => 'FI', 'source' => 'price list', 'target' => 'hinnasto']));
+        $this->assertWPError(Glossary::add(['targetLang' => 'FI', 'source' => 'price list', 'target' => ' ']));
         $this->assertWPError(Glossary::add(['targetLang' => 'EN', 'source' => 'a', 'target' => 'b']));
-        $this->assertIsInt(Glossary::add(['targetLang' => 'FI', 'source' => "wall\tbrace ", 'target' => 'seinäpönkkä']));
+        $this->assertIsInt(Glossary::add(['targetLang' => 'FI', 'source' => "price\tlist ", 'target' => 'hintaluettelo']));
     }
 
     public function test_a_second_translation_is_a_conflict_until_one_is_chosen(): void
     {
-        $first = $this->term('brace', 'tuki');
-        $second = $this->term('brace', 'pönkkä');
-        $suggestion = $this->term('brace', 'jäykiste', 'suggested', 'review');
+        $first = $this->term('invoice', 'lasku');
+        $second = $this->term('invoice', 'kauppalasku');
+        $suggestion = $this->term('invoice', 'laskelma', 'suggested', 'review');
 
         $conflicts = Glossary::query(['conflicts' => true]);
         $this->assertSame(2, $conflicts['total']);
@@ -203,42 +203,42 @@ class GlossaryTest extends AdminActionTestCase
         $this->assertSame(1, Glossary::bulk([$suggestion], 'approve'));
         $this->assertSame('rejected', Glossary::find($first)['status']);
         $this->assertSame('rejected', Glossary::find($second)['status']);
-        $this->assertSame(['brace' => 'jäykiste'], $this->approved());
+        $this->assertSame(['invoice' => 'laskelma'], $this->approved());
         $this->assertSame(0, Glossary::query(['conflicts' => true])['total']);
     }
 
     public function test_the_query_searches_filters_and_counts(): void
     {
-        $this->term('wall brace', 'seinätuki');
-        $this->term('beam puller', 'palkinvetäjä');
+        $this->term('price list', 'hinnasto');
+        $this->term('brochure', 'esite');
         $this->term('cart', 'ostoskori', 'suggested', 'proofread');
 
-        $this->assertSame(['wall brace'], array_column(Glossary::query(['search' => 'seinä'])['items'], 'source'));
+        $this->assertSame(['price list'], array_column(Glossary::query(['search' => 'hinna'])['items'], 'source'));
         $this->assertSame(['cart'], array_column(Glossary::query(['status' => ['suggested'], 'origin' => ['proofread']])['items'], 'source'));
-        $this->assertSame(['wall brace', 'cart', 'beam puller'], array_column(Glossary::query(['orderby' => 'source', 'order' => 'desc'])['items'], 'source'));
+        $this->assertSame(['price list', 'cart', 'brochure'], array_column(Glossary::query(['orderby' => 'source', 'order' => 'desc'])['items'], 'source'));
         $this->assertSame(['approved' => 2, 'draft' => 0, 'suggested' => 1, 'rejected' => 0], Glossary::counts());
         $this->assertSame([['targetLang' => 'FI', 'approved' => 2]], Glossary::pairs());
     }
 
     public function test_the_terms_of_a_text_are_whole_words_in_any_case_longest_first(): void
     {
-        $this->term('brace', 'tuki');
-        $this->term('wall brace', 'seinätuki');
-        $this->term('wall', 'seinä');
-        $this->term('embrace', 'syleillä');
+        $this->term('sheet', 'arkki');
+        $this->term('rate sheet', 'hinnasto');
+        $this->term('rate', 'hinta');
+        $this->term('worksheet', 'laskentataulukko');
         $this->term('cart', 'ostoskori', 'suggested');
 
-        $terms = Glossary::termsIn('<p>Two <strong>Wall Braces</strong> or one wall brace in the cart.</p>', 'EN', 'FI');
+        $terms = Glossary::termsIn('<p>Two <strong>Rate Sheets</strong> or one rate sheet in the cart.</p>', 'EN', 'FI');
 
-        $this->assertSame(['wall brace', 'brace', 'wall'], array_column($terms, 'source'));
-        $this->assertSame([], Glossary::termsIn('Wall brace', 'EN', 'SV'));
+        $this->assertSame(['rate sheet', 'sheet', 'rate'], array_column($terms, 'source'));
+        $this->assertSame([], Glossary::termsIn('Rate sheet', 'EN', 'SV'));
     }
 
     public function test_changes_are_sent_to_deepl_as_one_glossary_and_the_old_one_deleted(): void
     {
         add_filter('gds_content_translation_deepl_api_key', static fn (): string => 'key:fx');
-        $this->term('wall brace', 'seinätuki');
-        $this->term('Stedox', 'Stedox');
+        $this->term('price list', 'hinnasto');
+        $this->term('Acme', 'Acme');
 
         $this->assertTrue(DeeplGlossary::status()['pending']);
         $this->assertNotFalse(wp_next_scheduled('gds_content_translation_sync_glossary'));
@@ -250,7 +250,7 @@ class GlossaryTest extends AdminActionTestCase
         $this->assertSame([[
             'source_lang' => 'EN',
             'target_lang' => 'FI',
-            'entries' => "Stedox\tStedox\nwall brace\tseinätuki",
+            'entries' => "Acme\tAcme\nprice list\thinnasto",
             'entries_format' => 'tsv',
         ]], $this->deeplRequests[0]['body']['dictionaries']);
 
@@ -275,7 +275,7 @@ class GlossaryTest extends AdminActionTestCase
     {
         add_filter('gds_content_translation_deepl_api_key', static fn (): string => 'key');
         update_option(DeeplGlossary::optionKey, ['glossaryId' => 'old', 'dictionaries' => [['sourceLang' => 'EN', 'targetLang' => 'FI', 'entries' => 1]]]);
-        $this->term('wall brace', 'seinätuki');
+        $this->term('price list', 'hinnasto');
 
         $this->deeplRefuses = true;
         $result = DeeplGlossary::sync();
@@ -306,30 +306,30 @@ class GlossaryTest extends AdminActionTestCase
             $this->markTestSkipped('Polylang Pro is not available.');
         }
 
-        $this->term('wall brace', 'seinätuki');
-        $this->term('beam puller', 'palkinvetäjä');
+        $this->term('price list', 'hinnasto');
+        $this->term('brochure', 'esite');
         $ids = $this->createTranslatedPost();
-        wp_update_post(['ID' => $ids['en'], 'post_content' => "<!-- wp:paragraph -->\n<p>Fix the wall brace with a beam clamp.</p>\n<!-- /wp:paragraph -->"]);
-        wp_update_post(['ID' => $ids['fi'], 'post_content' => "<!-- wp:paragraph -->\n<p>Kiinnitä seinäpönkkä palkkikiinnikkeellä.</p>\n<!-- /wp:paragraph -->"]);
+        wp_update_post(['ID' => $ids['en'], 'post_content' => "<!-- wp:paragraph -->\n<p>Fix the price list with a delivery time.</p>\n<!-- /wp:paragraph -->"]);
+        wp_update_post(['ID' => $ids['fi'], 'post_content' => "<!-- wp:paragraph -->\n<p>Kiinnitä hintaluettelo sähköpostilla.</p>\n<!-- /wp:paragraph -->"]);
         $this->claudeResult = ['summary' => 'Two terms.', 'remarks' => [
-            ['segment' => 1, 'severity' => 'error', 'category' => 'terminology', 'issue' => 'Glossary.', 'suggestion' => 'Kiinnitä seinätuki palkkikiinnikkeellä.', 'term' => ['source' => '', 'target' => '']],
-            ['segment' => 1, 'severity' => 'warning', 'category' => 'terminology', 'issue' => 'Beam clamp.', 'suggestion' => 'Kiinnitä seinäpönkkä palkkipuristimella.', 'term' => ['source' => 'beam clamp', 'target' => 'palkkipuristin']],
+            ['segment' => 1, 'severity' => 'error', 'category' => 'terminology', 'issue' => 'Glossary.', 'suggestion' => 'Kiinnitä hinnasto sähköpostilla.', 'term' => ['source' => '', 'target' => '']],
+            ['segment' => 1, 'severity' => 'warning', 'category' => 'terminology', 'issue' => 'Delivery time.', 'suggestion' => 'Kiinnitä hintaluettelo toimitusajalla.', 'term' => ['source' => 'delivery time', 'target' => 'toimitusaika']],
         ]];
 
         TranslationAudit::queue($ids['fi']);
         (new TranslationAudit)->runQueued($ids['fi']);
 
         $payload = json_decode($this->claudeRequests[0]['messages'][0]['content'], true);
-        $this->assertSame([['source' => 'wall brace', 'target' => 'seinätuki']], $payload['glossary']);
+        $this->assertSame([['source' => 'price list', 'target' => 'hinnasto']], $payload['glossary']);
         $this->assertStringContainsString('glossary', $this->claudeRequests[0]['system']);
 
         $review = TranslationAudit::get($ids['fi']);
         $this->assertSame(1, $review['glossary']);
         $this->assertArrayNotHasKey('term', $review['remarks'][0]);
-        $this->assertSame(['source' => 'beam clamp', 'target' => 'palkkipuristin'], $review['remarks'][1]['term']);
+        $this->assertSame(['source' => 'delivery time', 'target' => 'toimitusaika'], $review['remarks'][1]['term']);
 
         $suggestions = Glossary::query(['status' => ['suggested']])['items'];
-        $this->assertSame([['beam clamp', 'palkkipuristin', 'review', 1, 'Fix the wall brace with a beam clamp.', $ids['fi']]], array_map(
+        $this->assertSame([['delivery time', 'toimitusaika', 'review', 1, 'Fix the price list with a delivery time.', $ids['fi']]], array_map(
             static fn (array $item): array => [$item['source'], $item['target'], $item['origin'], $item['hits'], $item['example'], $item['postId']],
             $suggestions
         ));
@@ -349,25 +349,25 @@ class GlossaryTest extends AdminActionTestCase
 
         $this->term('cart', 'ostoskori');
         $ids = $this->createTranslatedPost();
-        wp_update_post(['ID' => $ids['en'], 'post_content' => "<!-- wp:paragraph -->\n<p>Every wall brace fits.</p>\n<!-- /wp:paragraph -->\n\n<!-- wp:paragraph -->\n<p>Add it to the cart.</p>\n<!-- /wp:paragraph -->"]);
-        wp_update_post(['ID' => $ids['fi'], 'post_content' => "<!-- wp:paragraph -->\n<p>Jokainen seinätuki sopii.</p>\n<!-- /wp:paragraph -->\n\n<!-- wp:paragraph -->\n<p>Lisää se ostoskoriin.</p>\n<!-- /wp:paragraph -->"]);
+        wp_update_post(['ID' => $ids['en'], 'post_content' => "<!-- wp:paragraph -->\n<p>Every price list fits.</p>\n<!-- /wp:paragraph -->\n\n<!-- wp:paragraph -->\n<p>Add it to the cart.</p>\n<!-- /wp:paragraph -->"]);
+        wp_update_post(['ID' => $ids['fi'], 'post_content' => "<!-- wp:paragraph -->\n<p>Jokainen hinnasto sopii.</p>\n<!-- /wp:paragraph -->\n\n<!-- wp:paragraph -->\n<p>Lisää se ostoskoriin.</p>\n<!-- /wp:paragraph -->"]);
         GlossaryLearning::rememberMachineText($ids['fi']);
 
         // Nothing changed: nothing to learn.
         $this->assertSame([], GlossaryLearning::changes($ids['fi']));
 
-        wp_update_post(['ID' => $ids['fi'], 'post_content' => "<!-- wp:paragraph -->\n<p>Jokainen seinäpönkkä sopii.</p>\n<!-- /wp:paragraph -->\n\n<!-- wp:paragraph -->\n<p>Lisää se ostoskoriin.</p>\n<!-- /wp:paragraph -->"]);
-        $this->assertSame([['source' => 'Every wall brace fits.', 'machine' => 'Jokainen seinätuki sopii.', 'edited' => 'Jokainen seinäpönkkä sopii.']], GlossaryLearning::changes($ids['fi']));
+        wp_update_post(['ID' => $ids['fi'], 'post_content' => "<!-- wp:paragraph -->\n<p>Jokainen hintaluettelo sopii.</p>\n<!-- /wp:paragraph -->\n\n<!-- wp:paragraph -->\n<p>Lisää se ostoskoriin.</p>\n<!-- /wp:paragraph -->"]);
+        $this->assertSame([['source' => 'Every price list fits.', 'machine' => 'Jokainen hinnasto sopii.', 'edited' => 'Jokainen hintaluettelo sopii.']], GlossaryLearning::changes($ids['fi']));
 
         TranslationActions::setProofread($ids['fi'], true);
         $this->assertNotFalse(wp_next_scheduled('gds_content_translation_learn_glossary', [$ids['fi']]));
 
-        $this->claudeResult = ['terms' => [['source' => 'wall brace', 'target' => 'seinäpönkkä'], ['source' => 'a whole sentence that is far too long to be a term', 'target' => 'x']]];
+        $this->claudeResult = ['terms' => [['source' => 'price list', 'target' => 'hintaluettelo'], ['source' => 'a whole sentence that is far too long to be a term', 'target' => 'x']]];
         $this->assertSame(1, GlossaryLearning::learn($ids['fi']));
 
         $payload = json_decode($this->claudeRequests[0]['messages'][0]['content'], true);
-        $this->assertSame('Jokainen seinäpönkkä sopii.', $payload['changes'][0]['edited']);
-        $this->assertSame([['wall brace', 'seinäpönkkä', 'proofread', 'Every wall brace fits.']], array_map(
+        $this->assertSame('Jokainen hintaluettelo sopii.', $payload['changes'][0]['edited']);
+        $this->assertSame([['price list', 'hintaluettelo', 'proofread', 'Every price list fits.']], array_map(
             static fn (array $item): array => [$item['source'], $item['target'], $item['origin'], $item['example']],
             Glossary::query(['status' => ['suggested']])['items']
         ));
@@ -405,16 +405,16 @@ class GlossaryTest extends AdminActionTestCase
         do_action('rest_api_init', $server);
 
         $create = new WP_REST_Request('POST', '/gds-content-translation/v1/glossary');
-        $create->set_body_params(['targetLang' => 'FI', 'source' => 'wall brace', 'target' => 'seinätuki', 'note' => 'Not "tuki".']);
+        $create->set_body_params(['targetLang' => 'FI', 'source' => 'price list', 'target' => 'hinnasto', 'note' => 'Not "lasku".']);
         $created = $server->dispatch($create)->get_data();
-        $this->assertSame(['EN', 'FI', 'wall brace', 'seinätuki', 'approved', 'manual', 'Not "tuki".'], [$created['sourceLang'], $created['targetLang'], $created['source'], $created['target'], $created['status'], $created['origin'], $created['note']]);
+        $this->assertSame(['EN', 'FI', 'price list', 'hinnasto', 'approved', 'manual', 'Not "lasku".'], [$created['sourceLang'], $created['targetLang'], $created['source'], $created['target'], $created['status'], $created['origin'], $created['note']]);
 
         $duplicate = $server->dispatch($create);
         $this->assertSame(400, $duplicate->get_status());
 
         $update = new WP_REST_Request('POST', '/gds-content-translation/v1/glossary/'.$created['id']);
-        $update->set_body_params(['target' => 'seinäpönkkä', 'status' => 'draft']);
-        $this->assertSame(['seinäpönkkä', 'draft'], array_values(array_intersect_key($server->dispatch($update)->get_data(), ['target' => 1, 'status' => 1])));
+        $update->set_body_params(['target' => 'hintaluettelo', 'status' => 'draft']);
+        $this->assertSame(['hintaluettelo', 'draft'], array_values(array_intersect_key($server->dispatch($update)->get_data(), ['target' => 1, 'status' => 1])));
 
         $list = new WP_REST_Request('GET', '/gds-content-translation/v1/glossary');
         $list->set_query_params(['status' => ['draft'], 'target_lang' => 'FI']);
