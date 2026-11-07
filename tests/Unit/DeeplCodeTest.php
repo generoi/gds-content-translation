@@ -58,6 +58,8 @@ class DeeplCodeTest extends WP_UnitTestCase
     {
         $style = '<style>.proof{display:flex}.proof > b{opacity:.6}</style>';
         $script = '<script>document.querySelectorAll(".x").forEach(function (e) { if (e && e.dataset.on) return; });</script>';
+        // As an editor allowed to write code saves it.
+        kses_remove_filters();
         $source = self::factory()->post->create(['post_content' => '<!-- wp:html --><p>Trusted by</p>'.$style.$script.'<!-- /wp:html -->']);
         // What wp_kses_post() leaves of each, around the translated text.
         $translation = self::factory()->post->create(['post_content' => '<!-- wp:html --><p>Används av</p>'.wp_kses_post($style).wp_kses_post($script).'<!-- /wp:html -->']);
