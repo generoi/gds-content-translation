@@ -4,7 +4,7 @@
 Plugin Name:  GDS Content Translation
 Plugin URI:   https://genero.fi
 Description:  Polylang translation workflow: block attribute rules, internal link remapping, translation status admin, and machine translation helpers.
-Version:      1.6.2
+Version:      1.6.3
 Requires at least: 6.2
 Requires PHP: 8.0
 Author:       Genero
