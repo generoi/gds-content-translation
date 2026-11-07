@@ -367,6 +367,12 @@ class MachineTranslation
         }
 
         BlockPostIdTranslation::normalizePostContent($translationId);
+        BlockPostIdTranslation::relinkFromOriginal($translationId);
+
+        // Translations made before this one may point at its original with 0.
+        foreach (BlockPostIdTranslation::translationsWaitingFor($sourcePost->ID, $targetLang->slug) as $waiting) {
+            BlockPostIdTranslation::relinkFromOriginal($waiting);
+        }
 
         // The scripts and styles of custom HTML blocks, which Polylang Pro's
         // kses took apart, as the original has them.

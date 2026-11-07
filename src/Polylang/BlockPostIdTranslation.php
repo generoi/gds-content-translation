@@ -154,7 +154,8 @@ class BlockPostIdTranslation
     {
         $blockName = $block['blockName'] ?? '';
 
-        if ($blockName === 'core/query' && is_array($block['attrs']['query'] ?? null)) {
+        // WooCommerce's Product Collection keeps the same query, plus its hand-picked products.
+        if (in_array($blockName, ['core/query', 'woocommerce/product-collection'], true) && is_array($block['attrs']['query'] ?? null)) {
             $block['attrs']['query'] = self::translateQuery($block['attrs']['query'], $languageSlug);
 
             return $block;
@@ -175,23 +176,27 @@ class BlockPostIdTranslation
                 $value = $block['attrs'][$attributeName];
                 $translatedId = self::translateObjectId($value, $objectType, $languageSlug);
 
-                if ($translatedId === null) {
-                    continue;
-                }
-
-                if ($translatedId <= 0) {
-                    unset($block['attrs'][$attributeName]);
-
-                    continue;
-                }
-
+                // A product's own single-product block points at the product, as
+                // the original's points at the original. Translated before the
+                // translation existed, it got 0, and the editor would put the
+                // product's ID in on every load (so every save changes the page).
                 if (
                     $editedPostId > 0
                     && $blockName === 'woocommerce/single-product'
                     && $attributeName === 'productId'
                     && get_post_type($editedPostId) === 'product'
-                    && $translatedId === $editedPostId
+                    && ((int) $value === 0 || $translatedId === $editedPostId)
                 ) {
+                    $block['attrs'][$attributeName] = $editedPostId;
+
+                    continue;
+                }
+
+                if ($translatedId === null) {
+                    continue;
+                }
+
+                if ($translatedId <= 0) {
                     unset($block['attrs'][$attributeName]);
 
                     continue;
@@ -205,7 +210,8 @@ class BlockPostIdTranslation
     }
 
     /**
-     * A query loop's chosen posts (`include`, `exclude`), parent pages
+     * A query loop's or product collection's chosen posts (`include`,
+     * `exclude`, `woocommerceHandPickedProducts`), parent pages
      * (`parents`) and terms (`taxQuery`, as `{category: [4]}` or, since
      * WordPress 7.0, `{include: {category: [4]}, exclude: {…}}`).
      *
@@ -235,7 +241,7 @@ class BlockPostIdTranslation
             return $ids;
         };
 
-        foreach (['include' => true, 'exclude' => true, 'parents' => false] as $name => $zeroWhenMissing) {
+        foreach (['include' => true, 'exclude' => true, 'parents' => false, 'woocommerceHandPickedProducts' => true] as $name => $zeroWhenMissing) {
             if (isset($query[$name])) {
                 $query[$name] = $ids($query[$name], 'post', $zeroWhenMissing);
             }
@@ -297,6 +303,103 @@ class BlockPostIdTranslation
     /**
      * Normalize and persist block post IDs on a saved translation.
      */
+    /**
+     * The translations in a language whose originals point at a post (by
+     * ID in a block attribute), so a new translation of that post can be
+     * linked into them.
+     *
+     * @return list<int>
+     */
+    public static function translationsWaitingFor(int $originalId, string $languageSlug): array
+    {
+        global $wpdb;
+
+        $like = '%'.$wpdb->esc_like(':'.$originalId).'%';
+        $originals = $wpdb->get_col($wpdb->prepare(
+            "SELECT ID FROM {$wpdb->posts} WHERE post_status IN ('publish', 'draft', 'private', 'future', 'pending') AND post_type NOT IN ('revision', 'attachment') AND post_content LIKE %s",
+            $like
+        ));
+        $waiting = [];
+
+        foreach (array_map('intval', $originals) as $id) {
+            $translation = (int) pll_get_post($id, $languageSlug);
+
+            if ($translation > 0 && $translation !== $id && preg_match('/"[A-Za-z]*Id":0\b/', (string) get_post_field('post_content', $translation))) {
+                $waiting[] = $translation;
+            }
+        }
+
+        return $waiting;
+    }
+
+    /**
+     * IDs a translation lost because what they point at had no translation
+     * yet when it was made (a product page's teaser of another product
+     * translated after it): Polylang wrote 0. They are taken from the
+     * original again and pointed at the translations that exist now. Blocks
+     * are paired by position; a translation whose blocks no longer match the
+     * original's is left alone.
+     *
+     * @return int How many IDs were filled in.
+     */
+    public static function relinkFromOriginal(int $translationId): int
+    {
+        $languageSlug = function_exists('pll_get_post_language') ? (string) pll_get_post_language($translationId) : '';
+        $originalId = $languageSlug !== '' ? (int) pll_get_post($translationId, (string) pll_default_language()) : 0;
+
+        if ($originalId <= 0 || $originalId === $translationId) {
+            return 0;
+        }
+
+        $translation = parse_blocks((string) get_post_field('post_content', $translationId));
+        $original = parse_blocks((string) get_post_field('post_content', $originalId));
+        $rules = self::postIdAttributesByBlock();
+        $filled = 0;
+
+        $walk = static function (array $blocks, array $from) use (&$walk, &$filled, $rules, $languageSlug): array {
+            foreach ($blocks as $index => $block) {
+                $source = $from[$index] ?? null;
+
+                if (! is_array($source) || ($source['blockName'] ?? null) !== ($block['blockName'] ?? null)) {
+                    continue;
+                }
+
+                foreach ($rules[$block['blockName'] ?? ''] ?? [] as $objectType => $attributes) {
+                    foreach ($attributes as $attribute) {
+                        $was = $source['attrs'][$attribute] ?? null;
+
+                        if (! is_numeric($was) || (int) $was <= 0 || (int) ($block['attrs'][$attribute] ?? 0) > 0) {
+                            continue;
+                        }
+
+                        $now = self::translateObjectId($was, $objectType, $languageSlug);
+
+                        if ($now !== null && $now > 0) {
+                            $blocks[$index]['attrs'][$attribute] = $now;
+                            $filled++;
+                        }
+                    }
+                }
+
+                $blocks[$index]['innerBlocks'] = $walk($block['innerBlocks'] ?? [], $source['innerBlocks'] ?? []);
+            }
+
+            return $blocks;
+        };
+
+        $relinked = $walk($translation, $original);
+
+        if ($filled > 0) {
+            global $wpdb;
+
+            // Without kses: only IDs change, and the content may hold an HTML block's code.
+            $wpdb->update($wpdb->posts, ['post_content' => serialize_blocks($relinked)], ['ID' => $translationId]);
+            clean_post_cache($translationId);
+        }
+
+        return $filled;
+    }
+
     public static function normalizePostContent(int $postId): bool
     {
         $post = get_post($postId);

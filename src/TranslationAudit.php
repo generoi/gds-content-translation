@@ -980,6 +980,32 @@ final class TranslationAudit
         return self::locked($postId, static fn (): true|WP_Error => self::writeText($postId, $remarkId, $text, $resolution));
     }
 
+    /**
+     * A suggestion without an element around all of it that the text it
+     * replaces does not have: "<li>Lätt</li>" for the text of a list item
+     * ("Light"). Its own markup inside stays.
+     */
+    public static function withoutWrapper(string $suggestion, string $current): string
+    {
+        if (! preg_match('#^\s*<([a-z][a-z0-9]*)\b[^>]*>(.*)</\1>\s*$#is', $suggestion, $match)) {
+            return $suggestion;
+        }
+
+        [, $tag, $inner] = $match;
+
+        // The current text has the same element around it, or the inner part
+        // closes the element and opens another one ("<li>a</li><li>b</li>").
+        if (preg_match('#^\s*<'.$tag.'\b#i', $current) || preg_match_all('#<'.$tag.'\b#i', $inner) !== preg_match_all('#</'.$tag.'>#i', $inner)) {
+            return $suggestion;
+        }
+
+        if (preg_match('#</'.$tag.'>.*<'.$tag.'\b#is', $inner)) {
+            return $suggestion;
+        }
+
+        return trim($inner);
+    }
+
     private static function writeText(int $postId, int $remarkId, string $text, string $resolution): true|WP_Error
     {
         $review = self::get($postId);
@@ -1018,6 +1044,10 @@ final class TranslationAudit
         // wp_kses_post() drops the `translate` attribute of a nested block's placeholder,
         // and a text without all of them would delete those blocks.
         $text = str_replace(self::blockPlaceholderKsesed, self::blockPlaceholder, $text);
+        // A suggestion for a list item's or paragraph's text sometimes comes
+        // with the element around it; written in, it nests (<li><li>) and the
+        // block turns invalid.
+        $text = self::withoutWrapper($text, (string) $segment['translation']);
         // Claude saw it without the editor's soft hyphens: back in the words it
         // kept. A text that had them (a heading) gets them in its new words too.
         $text = SoftHyphens::restore((string) $segment['translation'], $text);
