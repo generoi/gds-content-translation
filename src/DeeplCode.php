@@ -167,6 +167,68 @@ final class DeeplCode
         return (string) preg_replace_callback('#<!--gds-keep-(\d+)-->#', static fn (array $match): string => $code[(int) $match[1]] ?? '', $clean);
     }
 
+    /**
+     * Puts the original's scripts and styles back into a translation.
+     *
+     * Polylang Pro runs each translated piece of a block through
+     * wp_kses_post(), which takes the <script> and <style> tags of a custom
+     * HTML block out and leaves their code on the page as text. What kses
+     * leaves of a piece of code is always the same, so it is found in the
+     * translation and the original piece goes back in its place; the
+     * translated text around it stays.
+     *
+     * The code comes only from the original, which someone allowed to write
+     * it saved; the translation is written without kses for that reason.
+     *
+     * @return int How many pieces of code were put back.
+     */
+    public static function restoreInTranslation(int $sourceId, int $translationId): int
+    {
+        global $wpdb;
+
+        $source = get_post($sourceId);
+        $translation = get_post($translationId);
+
+        if (! $source || ! $translation || ! preg_match(self::codePattern, $source->post_content)) {
+            return 0;
+        }
+
+        $content = $translation->post_content;
+        $restored = 0;
+
+        preg_match_all(self::codePattern, $source->post_content, $matches);
+
+        foreach ($matches[0] as $code) {
+            if (str_contains($content, $code)) {
+                continue;
+            }
+
+            $inner = (string) preg_replace('#^<(script|style)\b[^>]*>|</(script|style)>$#i', '', $code);
+
+            foreach (array_unique([trim(wp_kses_post($code)), trim($inner), trim(wp_kses_post($inner))]) as $leftover) {
+                if ($leftover === '') {
+                    continue;
+                }
+
+                $at = strpos($content, $leftover);
+
+                if ($at !== false) {
+                    $content = substr_replace($content, $code, $at, strlen($leftover));
+                    $restored++;
+
+                    break;
+                }
+            }
+        }
+
+        if ($restored > 0) {
+            $wpdb->update($wpdb->posts, ['post_content' => $content], ['ID' => $translationId]);
+            clean_post_cache($translationId);
+        }
+
+        return $restored;
+    }
+
     private static function isTranslateUrl(string $url): bool
     {
         return (bool) preg_match('#^https://api(-free)?\.deepl\.com/v2/translate$#', $url);

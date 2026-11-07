@@ -53,4 +53,17 @@ class DeeplCodeTest extends WP_UnitTestCase
         $this->assertSame('<p>Frakt till adressen nedan</p>'.self::script, DeeplCode::sanitizeKeepingCode($source, $translation, 'wp_kses_post'));
         $this->assertSame('<p>Hej</p>', DeeplCode::sanitizeKeepingCode('<p>Hi</p>', '<p>Hej</p>', 'wp_kses_post'));
     }
+
+    public function test_a_translation_gets_back_the_code_kses_took_apart(): void
+    {
+        $style = '<style>.proof{display:flex}.proof > b{opacity:.6}</style>';
+        $script = '<script>document.querySelectorAll(".x").forEach(function (e) { if (e && e.dataset.on) return; });</script>';
+        $source = self::factory()->post->create(['post_content' => '<!-- wp:html --><p>Trusted by</p>'.$style.$script.'<!-- /wp:html -->']);
+        // What wp_kses_post() leaves of each, around the translated text.
+        $translation = self::factory()->post->create(['post_content' => '<!-- wp:html --><p>Används av</p>'.wp_kses_post($style).wp_kses_post($script).'<!-- /wp:html -->']);
+
+        $this->assertSame(2, DeeplCode::restoreInTranslation($source, $translation));
+        $this->assertSame('<!-- wp:html --><p>Används av</p>'.$style.$script.'<!-- /wp:html -->', get_post($translation)->post_content);
+        $this->assertSame(0, DeeplCode::restoreInTranslation($source, $translation));
+    }
 }

@@ -448,6 +448,7 @@ cannot install. It does not change the plugin's own PHP requirement.
 
 - **AI review of long pages**: a page reviewed in parts lost its run while the review showed its progress, so the finished review was taken for a replaced one and dropped, and the page stayed *AI review running…* (with *Translate and fix automatically*, nothing was applied). It now finishes.
 - **Code in what DeepL translates**: a `<script>` or `<style>` in a custom HTML block or a form's HTML field is no longer sent to DeepL, which turned its quotes typographic and broke it. Form translations keep the original's scripts and styles; `wp_kses_post()` used to leave a script's code on the page as text.
+- **Scripts and styles of custom HTML blocks**: Polylang Pro runs every translated piece through `wp_kses_post()`, which took a custom HTML block's `<script>` and `<style>` tags out and left their code on the page as text. After an AI translation, the original's code goes back where kses left its remains; the translated text around it stays.
 - **Line breaks**: DeepL's comma or semicolon at the start of a line after a `<br>` (the lines of an address read as a list) is taken out when the original has none.
 
 ### 1.6.1
