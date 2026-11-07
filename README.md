@@ -444,6 +444,13 @@ cannot install. It does not change the plugin's own PHP requirement.
 
 ## Changelog
 
+### 1.6.3
+
+- **WooCommerce Product Collection**: its category filter (`taxQuery`), chosen products (`include`, `exclude`) and hand-picked products now point at the translation's, as a query loop's do. A translated category page listed nothing: its products are in the translated category.
+- **A product's own single-product block** points at the translated product, as the original's points at the original. It was translated to 0 (the translation did not exist yet), and the editor filled in the ID on every load, so every save changed the page.
+- **IDs lost to a later translation**: a block pointing at a post that had no translation yet (a product page's teaser of a product translated after it) got 0 and the original's ID was gone. After an AI translation, such IDs are filled in from the original, in the new translation and in the earlier ones waiting for it (`BlockPostIdTranslation::relinkFromOriginal()`).
+- **Suggestions with a wrapper**: a review suggestion that comes with the element around the text it is for (`<li>…</li>` for a list item's text) is written without it, instead of nesting the element.
+
 ### 1.6.2
 
 - **AI review of long pages**: a page reviewed in parts lost its run while the review showed its progress, so the finished review was taken for a replaced one and dropped, and the page stayed *AI review running…* (with *Translate and fix automatically*, nothing was applied). It now finishes.
