@@ -20,7 +20,7 @@ if (! defined('ABSPATH')) {
     exit;
 }
 
-define('GDS_CONTENT_TRANSLATION_VERSION', '1.6.2');
+define('GDS_CONTENT_TRANSLATION_VERSION', '1.6.3');
 define('GDS_CONTENT_TRANSLATION_FILE', __FILE__);
 define('GDS_CONTENT_TRANSLATION_PATH', __DIR__);
 define('GDS_CONTENT_TRANSLATION_META_KEY', '_content_translation_status_proofread');
