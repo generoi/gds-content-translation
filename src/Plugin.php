@@ -38,6 +38,7 @@ class Plugin
         Settings::init();
         MachineTranslation::init();
         SoftHyphens::init();
+        DeeplCode::init();
         TranslationAudit::init();
         AuditReview::init();
         AuditNotes::init();

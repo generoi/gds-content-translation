@@ -633,8 +633,9 @@ final class FormTranslation
     {
         $translation = trim($translation);
 
-        // Texts with HTML (descriptions, messages) keep what a post may have.
-        return $source !== wp_strip_all_tags($source) ? wp_kses_post($translation) : sanitize_textarea_field($translation);
+        // Texts with HTML (descriptions, messages) keep what a post may have,
+        // and an HTML field's scripts and styles stay the original's.
+        return $source !== wp_strip_all_tags($source) ? DeeplCode::sanitizeKeepingCode($source, $translation, 'wp_kses_post') : sanitize_textarea_field($translation);
     }
 
     /**
