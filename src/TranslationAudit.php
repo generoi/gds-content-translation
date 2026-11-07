@@ -1317,12 +1317,14 @@ final class TranslationAudit
         foreach ($chunks as $number => $chunk) {
             if (count($chunks) > 1 && $review['status'] !== 'done') {
                 // Progress for the review page while a long page is reviewed.
-                self::store($review['translationId'], [
+                // On top of the queued record: without its run (and follow-up,
+                // requester) the finished review reads as replaced and is dropped.
+                self::store($review['translationId'], array_merge(self::get($review['translationId']) ?? [], [
                     'status' => 'running',
                     'queuedAt' => time(),
                     'sourceId' => $review['sourceId'],
                     'progress' => [$number + 1, count($chunks)],
-                ]);
+                ]));
             }
 
             $result = $this->reviewChunk($review['model'], $source, $sourceLanguage, $targetLanguage, $chunk, $number + 1, count($chunks), $review['instructions']);

@@ -368,6 +368,10 @@ class MachineTranslation
 
         BlockPostIdTranslation::normalizePostContent($translationId);
 
+        // The scripts and styles of custom HTML blocks, which Polylang Pro's
+        // kses took apart, as the original has them.
+        DeeplCode::restoreInTranslation($sourcePost->ID, $translationId);
+
         // A copy is untranslated text: it stays a draft whatever the setting.
         if (! $client instanceof SourceCopyClient && self::publishesTranslations()) {
             self::publishTranslations($container, $targetLang);
