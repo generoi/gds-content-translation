@@ -158,4 +158,50 @@ class BlockPostIdTranslationTest extends PolylangTestCase
         $this->assertStringContainsString('Quote \\u0022x\\u0022 \\u003cy\\u003e \\u002d\\u002d', $saved);
         $this->assertStringContainsString('<p>C:\\path\\to</p>', $saved);
     }
+
+    public function test_it_translates_a_product_collections_hand_picked_products(): void
+    {
+        $block = [
+            'blockName' => 'woocommerce/product-collection',
+            'attrs' => ['query' => ['postType' => 'product', 'woocommerceHandPickedProducts' => [$this->target['en']], 'include' => [$this->target['en']]]],
+            'innerBlocks' => [],
+            'innerHTML' => '',
+            'innerContent' => [],
+        ];
+
+        $query = BlockPostIdTranslation::translateBlocks([$block], 'fi')[0]['attrs']['query'];
+
+        $this->assertSame([$this->target['fi']], $query['woocommerceHandPickedProducts']);
+        $this->assertSame([$this->target['fi']], $query['include']);
+    }
+
+    public function test_a_products_own_single_product_block_points_at_the_translation(): void
+    {
+        // WooCommerce's post type, translated by Polylang, without WooCommerce.
+        if (! post_type_exists('product')) {
+            register_post_type('product', ['public' => true]);
+        }
+        add_filter('pll_get_post_types', static fn (array $types): array => $types + ['product' => 'product']);
+        PLL()->model->clean_languages_cache();
+
+        $product = $this->createTranslatedPost(['post_type' => 'product', 'post_name' => 'puller']);
+        $block = static fn (int $id): array => ['blockName' => 'woocommerce/single-product', 'attrs' => ['productId' => $id], 'innerBlocks' => [], 'innerHTML' => '', 'innerContent' => []];
+
+        // Translated before the translation existed: 0.
+        $this->assertSame($product['fi'], BlockPostIdTranslation::translateBlocks([$block(0)], 'fi', $product['fi'])[0]['attrs']['productId']);
+        $this->assertSame($product['fi'], BlockPostIdTranslation::translateBlocks([$block($product['en'])], 'fi', $product['fi'])[0]['attrs']['productId']);
+    }
+
+    public function test_an_id_lost_to_a_later_translation_is_filled_in_from_the_original(): void
+    {
+        // The page was translated when its teaser's post had no translation: 0.
+        $page = $this->createTranslatedPost(['post_name' => 'page-with-teaser']);
+        wp_update_post(['ID' => $page['en'], 'post_content' => serialize_blocks([$this->teaser(['postId' => $this->target['en']])])]);
+        wp_update_post(['ID' => $page['fi'], 'post_content' => serialize_blocks([$this->teaser(['postId' => 0])])]);
+
+        $this->assertSame([$page['fi']], BlockPostIdTranslation::translationsWaitingFor($this->target['en'], 'fi'));
+        $this->assertSame(1, BlockPostIdTranslation::relinkFromOriginal($page['fi']));
+        $this->assertSame($this->target['fi'], parse_blocks(get_post_field('post_content', $page['fi']))[0]['attrs']['postId']);
+        $this->assertSame(0, BlockPostIdTranslation::relinkFromOriginal($page['fi']));
+    }
 }
