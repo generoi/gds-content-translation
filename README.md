@@ -99,6 +99,8 @@ add_filter('gds_content_translation_excluded_post_types', function (array $postT
 
 ### AI review of machine translations
 
+A machine translation made **outside this plugin** through Polylang Pro's pipeline (Polylang's own translate button in the editor, or another plugin or an MCP ability that runs it) gets the same follow-up as one made here: block post IDs and links remapped, custom HTML restored, hyphenation, SVG and form texts, glossary learning, and the AI review with the site's *Default way to AI translate*. It hooks `pll_after_post_machine_translation`; translations this plugin makes itself are not handled twice.
+
 When a translation is created with **AI translation**, Claude compares its **post content, ACF text fields** (text, textarea, WYSIWYG; repeater rows included), **title, excerpt and Yoast SEO texts** (SEO title, meta description, social and X titles and descriptions) with the original. Fields that are empty or still the same as the original are skipped, and Yoast variables such as `%%title%%` are kept in every suggestion. Other metas and terms are not reviewed, and Copy original is never reviewed. The translation itself only changes when an editor uses a suggestion, unless the suggestions are applied automatically (below).
 
 What happens after the review of a new AI translation is chosen when translating: **AI translate** in a cell opens a *Start AI translation* menu, and the bulk **AI translation…** dialog has the same three choices (*How to AI translate*):

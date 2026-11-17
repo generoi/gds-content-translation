@@ -496,6 +496,44 @@ class TranslationAuditTest extends AdminActionTestCase
         delete_option(TranslationAudit::optionKey);
     }
 
+    public function test_a_machine_translation_made_outside_the_plugin_is_reviewed_with_the_site_follow_up(): void
+    {
+        $ids = $this->translation();
+        update_option(TranslationAudit::optionKey, ['enabled' => true, 'followup' => 'apply']);
+
+        // Polylang Pro's pipeline, run by its editor button or another plugin, passes the originals.
+        do_action('pll_after_post_machine_translation', PLL()->model->get_language('fi'), [$ids['en']]);
+
+        $review = TranslationAudit::get($ids['fi']);
+        $this->assertContains($review['status'], ['pending', 'queued']);
+        $this->assertSame('apply', $review['followup']);
+        $this->assertSame($ids['en'], $review['sourceId']);
+        $this->assertNull(TranslationAudit::get($ids['en']));
+
+        delete_option(TranslationAudit::optionKey);
+    }
+
+    public function test_a_machine_translation_made_outside_the_plugin_is_not_reviewed_with_the_review_off(): void
+    {
+        $ids = $this->translation();
+        update_option(TranslationAudit::optionKey, ['enabled' => false]);
+
+        do_action('pll_after_post_machine_translation', PLL()->model->get_language('fi'), [$ids['en']]);
+
+        $this->assertNull(TranslationAudit::get($ids['fi']));
+
+        delete_option(TranslationAudit::optionKey);
+    }
+
+    public function test_an_original_without_a_translation_in_that_language_is_skipped(): void
+    {
+        $id = $this->createPost('en', ['post_title' => 'Alone']);
+
+        do_action('pll_after_post_machine_translation', PLL()->model->get_language('fi'), [$id]);
+
+        $this->assertNull(TranslationAudit::get($id));
+    }
+
     private function reviewedTranslation(): array
     {
         $ids = $this->translation();
