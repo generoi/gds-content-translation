@@ -45,10 +45,14 @@ class MachineTranslation
 
     private static ?bool $copyAvailable = null;
 
+    /** Whether this plugin is saving a translation itself, so the Polylang hook leaves it alone. */
+    private static bool $translating = false;
+
     public static function init(): void
     {
         $handler = new self;
         add_action('admin_post_'.self::action, [$handler, 'handleRequest']);
+        add_action('pll_after_post_machine_translation', [self::class, 'afterExternalTranslation'], 10, 2);
     }
 
     /**
@@ -340,7 +344,12 @@ class MachineTranslation
                 return new WP_Error('gds_ct_translation_failed', implode('; ', $result->get_error_messages()));
             }
 
-            $saveResult = self::withoutNotices($processor->save($container));
+            self::$translating = true;
+            try {
+                $saveResult = self::withoutNotices($processor->save($container));
+            } finally {
+                self::$translating = false;
+            }
         } finally {
             $polylang->curlang = $currentLangBackup;
         }
@@ -366,53 +375,105 @@ class MachineTranslation
             );
         }
 
-        BlockPostIdTranslation::normalizePostContent($translationId);
-        BlockPostIdTranslation::relinkFromOriginal($translationId);
-
-        // Translations made before this one may point at its original with 0.
-        foreach (BlockPostIdTranslation::translationsWaitingFor($sourcePost->ID, $targetLang->slug) as $waiting) {
-            BlockPostIdTranslation::relinkFromOriginal($waiting);
-        }
-
-        // The scripts and styles of custom HTML blocks, which Polylang Pro's
-        // kses took apart, as the original has them.
-        DeeplCode::restoreInTranslation($sourcePost->ID, $translationId);
+        self::remapTranslation($sourcePost->ID, $translationId, $targetLang->slug);
 
         // A copy is untranslated text: it stays a draft whatever the setting.
         if (! $client instanceof SourceCopyClient && self::publishesTranslations()) {
             self::publishTranslations($container, $targetLang);
         }
 
+        if (! $client instanceof SourceCopyClient) {
+            self::processTranslation($translationId, $followup, $instructions);
+        }
+
+        return $translationId;
+    }
+
+    /**
+     * Polylang Pro saves a translation with its original's block post IDs
+     * and links, and its own kses takes custom HTML apart: remap and restore
+     * them. Needed by every new translation, a copy of the original too.
+     */
+    private static function remapTranslation(int $sourceId, int $translationId, string $language): void
+    {
+        BlockPostIdTranslation::normalizePostContent($translationId);
+        BlockPostIdTranslation::relinkFromOriginal($translationId);
+
+        // Translations made before this one may point at its original with 0.
+        foreach (BlockPostIdTranslation::translationsWaitingFor($sourceId, $language) as $waiting) {
+            BlockPostIdTranslation::relinkFromOriginal($waiting);
+        }
+
+        // The scripts and styles of custom HTML blocks, which Polylang Pro's
+        // kses took apart, as the original has them.
+        DeeplCode::restoreInTranslation($sourceId, $translationId);
+    }
+
+    /**
+     * What a new machine translation goes through after that: hyphenation,
+     * the texts DeepL did not see, the machine text kept for glossary
+     * learning, and the AI review queued.
+     */
+    private static function processTranslation(int $translationId, string $followup, ?string $instructions): void
+    {
         // Soft hyphens where the language's long words in headings and buttons
         // may break; before the review, which then reviews the page as it is.
-        if (! $client instanceof SourceCopyClient && Hyphenation::isEnabled()) {
+        if (Hyphenation::isEnabled()) {
             Hyphenation::applyToPost($translationId);
         }
 
         // What DeepL did not see: the labels in its SVGs and its forms' texts.
         // Before the review, so it reviews the page as it then is.
-        if (! $client instanceof SourceCopyClient) {
-            if (SvgTranslation::isAutomatic()) {
-                SvgTranslation::translateAll($translationId);
-            }
+        if (SvgTranslation::isAutomatic()) {
+            SvgTranslation::translateAll($translationId);
+        }
 
-            if (FormTranslation::isAvailable() && DeeplApi::isAvailable()) {
-                FormTranslation::translateFormsOf($translationId);
-            }
+        if (FormTranslation::isAvailable() && DeeplApi::isAvailable()) {
+            FormTranslation::translateFormsOf($translationId);
         }
 
         // Kept to learn the glossary terms an editor changes before proofreading it.
-        if (! $client instanceof SourceCopyClient) {
-            GlossaryLearning::rememberMachineText($translationId);
-        }
+        GlossaryLearning::rememberMachineText($translationId);
 
         // Reviewed in the background, so the editor opens without waiting for
-        // it. A copy of the source has nothing to review.
-        if (! $client instanceof SourceCopyClient && TranslationAudit::isEnabled()) {
+        // it.
+        if (TranslationAudit::isEnabled()) {
             TranslationAudit::queue($translationId, $followup, $instructions);
         }
+    }
 
-        return $translationId;
+    /**
+     * A machine translation made outside this plugin, through Polylang Pro's
+     * pipeline: its own "translate" button in the editor, or another plugin
+     * calling it (an MCP ability, a script). It gets the same treatment as
+     * one made here, the AI review included, with the site's default follow-up.
+     *
+     * Polylang Pro passes the IDs of the originals.
+     *
+     * @param  object  $language  PLL_Language
+     * @param  array<int|string>  $ids
+     */
+    public static function afterExternalTranslation(object $language, array $ids): void
+    {
+        if (self::$translating || ! isset($language->slug) || ! function_exists('pll_get_post')) {
+            return;
+        }
+
+        foreach ($ids as $sourceId) {
+            $translationId = (int) pll_get_post((int) $sourceId, (string) $language->slug);
+
+            if ($translationId <= 0 || $translationId === (int) $sourceId) {
+                continue;
+            }
+
+            try {
+                self::remapTranslation((int) $sourceId, $translationId, (string) $language->slug);
+                // No instructions of its own: a review run before keeps its page's.
+                self::processTranslation($translationId, TranslationAudit::followup(null), null);
+            } catch (Throwable $e) {
+                error_log(sprintf('[gds-content-translation] Follow-up of the %s machine translation of post %d failed: %s', $language->slug, $sourceId, $e->getMessage()));
+            }
+        }
     }
 
     public const publishOption = 'gds_content_translation_publish';
