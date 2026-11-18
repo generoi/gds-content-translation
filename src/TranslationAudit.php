@@ -447,7 +447,23 @@ final class TranslationAudit
         delete_post_meta($postId, self::tokenMetaKey);
 
         AuditNotes::remove($postId, array_map('intval', (array) ($queued['previousNotes'] ?? [])));
-        $review = $this->run($postId, (string) ($queued['pageInstructions'] ?? ''));
+        // As the editor who asked: in the background there is no user, and
+        // Polylang Pro hides inactive languages from anyone who cannot edit
+        // posts, so a translation into a language not yet public would have
+        // no language and the review would find nothing to compare.
+        $previousUser = get_current_user_id();
+        $requestedBy = (int) ($queued['requestedBy'] ?? 0);
+
+        if ($requestedBy > 0 && get_userdata($requestedBy)) {
+            wp_set_current_user($requestedBy);
+        }
+
+        try {
+            $review = $this->run($postId, (string) ($queued['pageInstructions'] ?? ''));
+        } finally {
+            wp_set_current_user($previousUser);
+        }
+
         $review['requestedBy'] = (int) ($queued['requestedBy'] ?? 0);
         $review['appliedBefore'] = (int) ($queued['appliedBefore'] ?? 0);
         $review['run'] = (string) ($queued['run'] ?? '');
